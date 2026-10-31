@@ -202,6 +202,19 @@ For example, with the **BigQuery MCP server** (`datacloud_bigquery_remote`), Ant
 
 Now let's build our own custom MCP server in Python!
 
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+When you build an MCP server in **Google Antigravity**, you can combine your workspace rules with official Google documentation skills so the agent writes clean, read-only MCP tools on the first try:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md): Enforces Pydantic v2 validation and parameterized SQL (`?` placeholders).
+   - **Developer Knowledge Skill (`retrieving-developer-knowledge`)**: Lets Antigravity look up current MCP Streamable HTTP and `Stdio` patterns.
+2. **The Prompt to Run in Antigravity**:
+   > `/plan Create a read-only Python MCP server in labs/lab06-mcp-tools/event_mcp_server.py and tests in test_event_mcp_server.py. Open SQLite in read-only URI mode (?mode=ro), validate all tool inputs with Pydantic v2, use ? parameterized SQL queries, and mask attendee email addresses (e.g. aa***@example.org) before returning registration lists.`
+3. **What to Check in `git diff`**:
+   - Verify the SQLite connection uses `uri=True` with `?mode=ro` so a buggy tool can never modify or delete rows.
+   - Verify `mask_email()` runs on every attendee record before the dictionary is returned to the model.
+
 Open up `labs/lab06-mcp-tools/`. Here is the scenario we are solving:
 
 Our developer relations team runs hands-on technical workshops (on the Gemini SDK, Cloud Run, and MCP). The schedule and attendee registrations live in a SQLite database (`workshops` and `registrations` tables). We want Antigravity to be able to answer questions like:

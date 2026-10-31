@@ -134,13 +134,17 @@ When Antigravity starts working on a file in your repository, it walks up the fo
 > - **Automatic Deduplication**: Even if Antigravity touches ten files in the same folder, each `GEMINI.md` file is deduplicated by its path and injected only once.
 > - **Keep Rules Concise**: Each rule file is capped at `24 KB` (`24,000` bytes), and all always-on rules share a `20,000`-token rules budget. Keep `GEMINI.md` short, punchy, and focused on rules the agent needs on *every* turn.
 
-### 2. On-Demand Workflows: Skills (`.agents/skills/<name>/SKILL.md`)
+### 2. On-Demand Workflows: The 3 Levels of Agent Skills
 
-What about detailed, multi-step checklists that you only need *sometimes*—like a 4-step checklist for adding a new analytics command, or deploying to Cloud Run, or running a security audit?
+What about detailed, multi-step checklists that you only need *sometimes*—like a 4-step checklist for adding a new analytics command, or scaffolding an ADK agent, or running a security audit?
 
 If you put fifty different checklists inside `GEMINI.md`, they would eat up your context window on every single turn, even when you are just fixing a typo in `README.md`.
 
-Instead, we package repeatable workflows as **Skills** inside `.agents/skills/<skill-name>/SKILL.md`. Every `SKILL.md` starts with a tiny YAML frontmatter header between `---` lines:
+In the Google AI ecosystem, **Agent Skills** solve this across **three levels**—starting on your laptop while you code, extending into the agents you deploy to production, and scaling across your entire team in Google Cloud:
+
+#### Level 1: Coding-Time Workspace Skills (`.agents/skills/<name>/SKILL.md` + `agents-cli setup`)
+
+We package repeatable workflows as **Skills** inside `.agents/skills/<skill-name>/SKILL.md`. Every `SKILL.md` starts with a tiny YAML frontmatter header between `---` lines:
 
 ```markdown
 ---
@@ -155,6 +159,49 @@ description: >-
 Here is the magic of **progressive disclosure**:
 1. At the start of a conversation, Antigravity **does not read the body** of your `SKILL.md` files. It only loads the `name` and `description` (just two lines!).
 2. When you ask something that matches the description—like *"Add a method to find my longest study session"*—Antigravity sees the match, reads the full `.agents/skills/add-study-command/SKILL.md` file on demand, and follows your checklist step by step.
+
+Better yet, you don't have to write every skill from scratch! You can install official Google skill packs directly into your workspace with one command. For example, running **`uvx google-agents-cli setup`** installs the official **7-skill `agents-cli` suite** (`google-agents-cli-workflow`, `scaffold`, `adk-code`, `eval`, `deploy`, `publish`, `observability`) straight into Antigravity so your coding agent automatically knows the latest Google Cloud & ADK patterns.
+
+#### Level 2: Runtime Agent-Loadable Skills (`/.agent/skills` in Deployed Agents)
+
+Skills aren't just for your coding assistant in the IDE—**the AI agents you build and deploy can also load `SKILL.md` files at runtime!**
+
+Suppose you build a customer support or operations agent in Chapter 8 or Chapter 10 that handles 25 different company procedures (refund policies, hardware troubleshooting, travel reimbursement). Instead of stuffing all 25 policy manuals into the agent's system prompt on every single message, you mount those `SKILL.md` files into the running agent at **`/.agent/skills/<skill-name>`** (either using the ADK `long-horizon-harness` pattern or the **Gemini Enterprise Managed Agents API** `mount` block from Google Cloud Storage or Skill Registry):
+
+```json
+{
+  "mount": {
+    "path": "/.agent/skills/study-coach",
+    "source": {
+      "skillSource": {
+        "skillReference": "projects/my-project/locations/global/skills/study-coach"
+      }
+    }
+  }
+}
+```
+
+When a user asks your live agent a question, the agent checks its mounted skill descriptions and reads only the specific `SKILL.md` playbook it needs for that conversation!
+
+#### Level 3: Enterprise Discovery & Governance (`Google Cloud Agent Registry`)
+
+What happens when ten different teams at your company want to share vetted, version-controlled skills without copying and pasting `.md` files across fifty Git repositories?
+
+Google Cloud provides **Agent Registry & Skill Registry** (`agentregistry.googleapis.com`), a central catalog where you can discover both **First-Party Google skills** (`origin=FIRST_PARTY`) and **Private enterprise skills** (`origin=PRIVATE`) published by your organization:
+
+```bash
+# 1. Discover available First-Party and Private skills in your Google Cloud project
+gcloud alpha agent-registry skills list \
+  --project="$GOOGLE_CLOUD_PROJECT" \
+  --location="global"
+
+# 2. Inspect and download a specific versioned skill revision on demand
+gcloud alpha agent-registry skills revisions describe \
+  "projects/$GOOGLE_CLOUD_PROJECT/locations/global/skills/study-coach/revisions/1" \
+  --format="json"
+```
+
+This means a security or platform team can update a company skill in one place, publish a new revision to Skill Registry, and both developers in Antigravity and live agents in production can pull the approved revision immediately.
 
 ### 3. Automatic Guardrails: Lifecycle Hooks (`.agents/hooks.json`)
 

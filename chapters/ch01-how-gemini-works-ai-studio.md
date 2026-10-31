@@ -252,7 +252,29 @@ config = types.GenerateContentConfig(
 - **When to set `ThinkingLevel.MINIMAL` or `ThinkingLevel.LOW`**: When you want the fastest possible response time and lowest token usage on straightforward extraction or classification tasks.
 - **When to set `ThinkingLevel.MEDIUM` or `ThinkingLevel.HIGH`**: When the receipt or document is messy, has split discounts applied across items, or requires multi-step logic before filling out the JSON fields.
 
-### Step 4: Run the Script and Tests
+### Step 4: One-Line Google Search Grounding & URL Context
+
+What if your receipt or note mentions a vendor or tax rate you want to verify against live web facts—or what if a user pastes a link to a live webpage and asks Gemini to summarize it?
+
+In the `google-genai` SDK, you don't need to sign up for a separate third-party search API or write a custom web scraper. You can turn on **Google Search Grounding** and **URL Context** with a single line inside `GenerateContentConfig`:
+
+```python
+def build_grounded_search_config(*, include_url_context: bool = True) -> types.GenerateContentConfig:
+    """Create a GenerateContentConfig with built-in Google Search Grounding and URL Context."""
+    tools: list[dict[str, dict[str, object]]] = [{"google_search": {}}]
+    if include_url_context:
+        tools.append({"url_context": {}})
+
+    return types.GenerateContentConfig(
+        system_instruction="Answer using verified facts and cite your sources.",
+        temperature=0.1,
+        tools=tools,
+    )
+```
+
+When you pass `tools=[{"google_search": {}}]`, Gemini automatically searches Google when it needs fresh facts and attaches source links and citations inside `response.candidates[0].grounding_metadata`. And when you add `{"url_context": {}}`, Gemini can directly read public URLs included in your prompt—no scraping code required!
+
+### Step 5: Run the Script and Tests
 
 From the root of the repository, run the extractor script:
 

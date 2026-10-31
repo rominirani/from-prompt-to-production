@@ -85,13 +85,38 @@ flowchart LR
 
 ---
 
-## 3. The Google Tool from Scratch: Cloud Run, Secret Manager, Cloud Trace & OSV
+## 3. The Google Tool from Scratch: Cloud Run, Vertex AI Agent Engine, Secret Manager & Observability
 
-Once your app is containerized and hardened, where should it live?
+Once your app or ADK agent is containerized and hardened, where should it live on Google Cloud?
 
 If you rent a traditional virtual machine, you have to patch the operating system, configure HTTPS certificates, and pay for the server 24 hours a day even when nobody is visiting your site.
 
-**Google Cloud Run** takes a much simpler approach: you give Cloud Run your container (or your source folder containing a `Dockerfile`), and Google handles the HTTPS certificate, runs your container when requests arrive, scales up to more instances during traffic spikes, and scales down when traffic stops.
+On Google Cloud, you have **two serverless deployment options** that work hand-in-hand with `gcloud` and **`agents-cli`**:
+1. **Google Cloud Run (`--deployment-target cloud_run`)**: Best when you are deploying a full-stack web app (like our HTMX dashboard from Chapter 7), a custom FastAPI REST API (Chapter 5), a custom `Dockerfile`, or an agent that also serves web pages and webhooks.
+2. **Vertex AI Agent Engine / Agent Runtime (`--deployment-target agent_runtime`)**: Best when you are deploying a pure **Google ADK or LangChain AI agent** (like our Event Concierge from Chapter 8) and want Google Cloud to manage conversation sessions, long-term memory, and Gemini Enterprise integration automatically without writing a `Dockerfile`.
+
+### Cloud Run vs. Vertex AI Agent Engine: Side-by-Side Decision Guide
+
+Use this table whenever you are deciding where to deploy your project:
+
+| Question | **Google Cloud Run (`cloud_run`)** | **Vertex AI Agent Engine (`agent_runtime`)** |
+| :--- | :--- | :--- |
+| **What are you shipping?** | Full-stack web apps, FastAPI REST APIs, MCP servers, or agents with custom web UIs | Pure conversational or multi-agent ADK systems |
+| **Do you write a `Dockerfile`?** | Yes (gives you 100% control over OS packages and web routes) | No (`agents-cli` packages your Python agent code directly) |
+| **How are chat sessions & memory stored?** | You connect SQLite (dev) or Cloud SQL / AlloyDB (prod) | Built-in **`VertexAiSessionService`** and **Vertex AI Memory Bank** |
+| **How does it scale when idle?** | Scales down to `0` containers (`$0` while idle) | Fully managed serverless runtime |
+| **How does it connect to Gemini Enterprise?** | Publishes via **A2A** (`/.well-known/agent-card.json`) | Publishes via native ADK `:streamQuery` + built-in OAuth 2.0 user consent |
+| **`agents-cli` Command** | `agents-cli scaffold enhance . --deployment-target cloud_run` | `agents-cli scaffold enhance . --deployment-target agent_runtime` |
+
+With `agents-cli`, deploying an ADK agent to either target takes just two commands:
+
+```bash
+# 1. Add deployment configuration for Vertex AI Agent Engine (or cloud_run)
+agents-cli scaffold enhance . --deployment-target agent_runtime
+
+# 2. Deploy to Google Cloud and verify health automatically!
+agents-cli deploy
+```
 
 ### 1. Storing Secrets in Google Cloud Secret Manager
 
@@ -156,6 +181,38 @@ When your app accepts free-form text from public users on the internet and forwa
 
 We already built our first line of defense in Chapters 5 and 8: our Python tool functions enforce hard capacity limits and parameterized SQL queries in code, regardless of what the prompt says. For an extra layer of protection on Google Cloud, you can also run incoming user prompts and outgoing model responses through **Google Cloud Model Armor**, which screens for prompt injection, jailbreak attempts, sensitive data (PII) leaks, and unsafe content before the text ever reaches your agent or user.
 
+### 7. Agent Observability, Prompt-Response Logging & BigQuery Agent Analytics (`--bq-analytics`)
+
+Once your app or ADK agent is live in production, how do you see what your agent is actually doing when real users talk to it?
+
+With **`agents-cli`** (`google-agents-cli-observability`), you get three layers of production visibility out of the box—and you can provision the cloud buckets and BigQuery tables in one command:
+
+```bash
+# Provision Cloud Trace, GCS prompt-response logging, and BigQuery Agent Analytics!
+agents-cli infra single-project \
+  --project "$GOOGLE_CLOUD_PROJECT" \
+  --agent-name event-concierge \
+  --bq-analytics \
+  --apply
+```
+
+Here is what those three layers give you in plain English:
+1. **Cloud Trace (OpenTelemetry Span Hierarchy)**: Every time a user messages your agent, ADK records a visual timeline showing exact millisecond durations for:
+   - `invoke_workflow` -> `invoke_agent` -> `call_llm` -> `execute_tool`
+   If a turn took 3.2 seconds, Cloud Trace shows you immediately whether the time was spent inside Gemini (`call_llm`) or inside a slow database query (`execute_tool`).
+2. **Prompt-Response Logging to Cloud Storage**: When you set `LOGS_BUCKET_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, full prompt and tool payloads are archived safely in your private GCS bucket for debugging.
+3. **BigQuery Agent Analytics (`--bq-analytics`) + BigQuery AI (`AI.GENERATE`)**: Every agent turn, tool call, latency measurement, and token count streams into a BigQuery table (`agent_events`). You can query your agent's top tools or even use BigQuery's built-in **`AI.GENERATE`** function to classify thousands of user questions right inside SQL:
+   ```sql
+   SELECT
+     agent_name,
+     tool_name,
+     COUNT(*) AS total_calls,
+     ROUND(AVG(latency_ms), 1) AS avg_ms
+   FROM `my_project.agent_analytics.agent_events`
+   GROUP BY agent_name, tool_name
+   ORDER BY total_calls DESC;
+   ```
+
 ### Common Cloud Run Deployment Gotchas (and 30-Second Fixes)
 
 | Symptom / Error on Deploy | Why It Happens | The 30-Second Fix |
@@ -169,7 +226,19 @@ We already built our first line of defense in Chapters 5 and 8: our Python tool 
 
 ## 4. Hands-On Python Lab Walkthrough
 
-Let's open **Lab 9** (`labs/lab09-cloud-run-deploy/`). Before we look at the full FastAPI server, let's start with a short, self-contained file—[before_and_after_demo.py](../labs/lab09-cloud-run-deploy/before_and_after_demo.py)—that lets you see **Security**, **Optimization**, and **Scaling** side-by-side in 10-line Python snippets.
+Let's open **Lab 9** (`labs/lab09-cloud-run-deploy/`). Before we look at the full FastAPI server, let's start with how to generate and verify this lab in **Google Antigravity**, followed by our short, self-contained file—[before_and_after_demo.py](../labs/lab09-cloud-run-deploy/before_and_after_demo.py)—that lets you see **Security**, **Optimization**, and **Scaling** side-by-side in 10-line Python snippets.
+
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Here is how you can build, scan, and deploy Lab 09 inside **Google Antigravity** with your security and deployment skills active:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + `scan_dependencies` + `run-security-scanner` + `google-agents-cli-deploy` + `google-agents-cli-observability`.
+2. **The Prompt to Run in Antigravity**:
+   > `/plan Build labs/lab09-cloud-run-deploy/production_app.py, Dockerfile, locustfile.py, and test_production_app.py. Include multi-tiered secret resolution (failing closed when APP_ENV=production), constant-time API key checks with secrets.compare_digest, a 30-second TTL cache, a token-bucket rate limiter, and an OSV/slopsquatting package verifier. Scan all dependencies first with scan_dependencies and run tests when finished.`
+3. **What to Check in `git diff`**:
+   - Confirm there is zero fallback secret string like `os.getenv("SERVICE_API_KEY", "dev-secret")`—in `production`, missing secrets must raise a `RuntimeError`.
+   - Confirm the `Dockerfile` runs as non-root `USER appuser` and listens on port `8080`.
 
 ### File 0: Seeing Security, Optimization & Scaling in 10 Lines ([before_and_after_demo.py](../labs/lab09-cloud-run-deploy/before_and_after_demo.py))
 

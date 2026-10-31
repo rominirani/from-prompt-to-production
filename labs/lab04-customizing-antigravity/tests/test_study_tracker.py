@@ -11,7 +11,12 @@ from pydantic import ValidationError
 LAB_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(LAB_ROOT / "src"))
 
-from study_tracker import StudySession, StudyTrackerService
+from study_tracker import (
+    StudySession,
+    StudyTrackerService,
+    build_runtime_skill_mount,
+    parse_skill_frontmatter,
+)
 
 
 def test_add_and_validate_study_session() -> None:
@@ -95,6 +100,21 @@ def test_list_sessions_with_case_insensitive_filter() -> None:
     assert sum(s.duration_minutes for s in filtered) == 65
 
 
+def test_parse_skill_frontmatter_and_runtime_mount() -> None:
+    """parse_skill_frontmatter loads progressive-disclosure metadata and build_runtime_skill_mount formats Skill Registry mounts."""
+    skill_path = LAB_ROOT / ".agents" / "skills" / "add-study-command" / "SKILL.md"
+    entry = parse_skill_frontmatter(skill_path)
+    assert entry.name == "add-study-command"
+    assert "StudyTrackerService" in entry.description
+
+    mount_cfg = build_runtime_skill_mount("add-study-command", project_id="demo-gcp-project")
+    assert mount_cfg["mount"]["path"] == "/.agent/skills/add-study-command"
+    assert (
+        mount_cfg["mount"]["source"]["skillSource"]["skillReference"]
+        == "projects/demo-gcp-project/locations/global/skills/add-study-command"
+    )
+
+
 if __name__ == "__main__":
     test_functions = [
         test_add_and_validate_study_session,
@@ -102,6 +122,7 @@ if __name__ == "__main__":
         test_progress_report_aggregates_and_sorts_topics_correctly,
         test_empty_tracker_returns_safe_report_and_markdown,
         test_list_sessions_with_case_insensitive_filter,
+        test_parse_skill_frontmatter_and_runtime_mount,
     ]
     passed = 0
     for fn in test_functions:

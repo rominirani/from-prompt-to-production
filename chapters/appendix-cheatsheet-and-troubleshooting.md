@@ -71,22 +71,45 @@ git checkout -b try-risky-idea           # Create a safe scratch branch to test 
 | **`/learn`** | Save a rule or correction into your workspace customizations so you never have to repeat yourself. |
 | **`/schedule`** | Create a recurring scheduled automation (e.g., a daily morning code health or PR review run). |
 
-### Google ADK & Google Cloud Run Commands
+### Google ADK, `agents-cli`, Agent Registry & Google Cloud Run Commands
 ```bash
-# Test your Google ADK agent visually in your local browser
-uv run adk web
+# 1. Install agents-cli and wire the 7 official agent skills into your workspace
+uv tool install google-agents-cli
+uvx google-agents-cli setup
 
-# Create a secret in Google Cloud Secret Manager
+# 2. Scaffold a prototype ADK agent with A2A & GEMINI.md guidance
+agents-cli scaffold create my-agent --agent adk --prototype --agent-guidance-filename GEMINI.md
+
+# 3. Run and visually debug your agent locally
+uv run agents-cli run "Test prompt" --start-server
+uv run agents-cli playground
+
+# 4. Run the Quality Flywheel (eval, synthesize, analyze, optimize, compare)
+uv run agents-cli eval run --config-path tests/eval/eval_config.yaml
+uv run agents-cli eval dataset synthesize --num-scenarios 10 --output tests/eval/datasets/expanded.json
+uv run agents-cli eval optimize --apply
+
+# 5. Add deployment target (Vertex AI Agent Engine or Cloud Run) + Cloud Build CI/CD
+agents-cli scaffold enhance . --deployment-target agent_runtime --cicd-runner google_cloud_build
+agents-cli deploy
+agents-cli publish gemini-enterprise
+
+# 6. Provision Cloud Trace, GCS Prompt-Response Logging & BigQuery Agent Analytics
+agents-cli infra single-project --project "$GOOGLE_CLOUD_PROJECT" --agent-name my-agent --bq-analytics --apply
+
+# 7. Discover enterprise skills & agents in Google Cloud Agent Registry
+gcloud alpha agent-registry skills list --project="$GOOGLE_CLOUD_PROJECT" --location="global"
+gcloud alpha agent-registry agents list --project="$GOOGLE_CLOUD_PROJECT" --location="global"
+
+# 8. Deploy a containerized Python FastAPI/HTMX app to Google Cloud Run with Secret Manager
 printf "my-secret-value" | gcloud secrets create my-api-key --data-file=-
-
-# Deploy a containerized Python app to Google Cloud Run
 gcloud run deploy my-python-service \
     --source . \
     --region us-central1 \
     --set-secrets SERVICE_API_KEY=my-api-key:latest \
     --set-env-vars APP_ENV=production
 
-# Send 10% of live traffic to a new revision (Canary rollout)
+# 9. Send 10% of live traffic to a new revision (Canary rollout)
 gcloud run services update-traffic my-python-service --to-revisions LATEST=10
 ```
 

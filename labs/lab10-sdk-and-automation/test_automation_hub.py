@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from automation_hub import (
+    build_managed_agent_payload,
     estimate_workload_cost,
     run_automated_diff_review,
     select_optimal_gemini_model,
@@ -96,6 +97,24 @@ def test_cloudbuild_yaml_is_valid_and_runs_tests_before_deploy() -> None:
     ]
 
 
+def test_build_managed_agent_payload() -> None:
+    """Verify `build_managed_agent_payload` mounts Skill Registry skills into the Managed Agent definition."""
+    payload = build_managed_agent_payload(
+        display_name="Release Readiness Reviewer",
+        project_id="my-gcp-project",
+        skill_ids=["release-audit", "cost-guard"],
+    )
+    assert payload["displayName"] == "Release Readiness Reviewer"
+    assert payload["definition"]["model"] == "gemini-3-flash-preview"
+    tools = payload["definition"]["tools"]
+    assert len(tools) == 4
+    assert tools[2]["mount"]["path"] == "/.agent/skills/release-audit"
+    assert (
+        tools[2]["mount"]["source"]["skillSource"]["skillReference"]
+        == "projects/my-gcp-project/locations/global/skills/release-audit"
+    )
+
+
 if __name__ == "__main__":
     test_functions = [
         test_smart_model_routing_Across_tiers,
@@ -103,6 +122,7 @@ if __name__ == "__main__":
         test_antigravity_sdk_reviewer_blocks_unsafe_diff,
         test_antigravity_sdk_reviewer_approves_clean_diff,
         test_cloudbuild_yaml_is_valid_and_runs_tests_before_deploy,
+        test_build_managed_agent_payload,
     ]
     passed = 0
     for fn in test_functions:

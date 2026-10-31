@@ -287,7 +287,29 @@ config = types.GenerateContentConfig(
 - **When to set `ThinkingLevel.MINIMAL` or `ThinkingLevel.LOW`**: When you want the fastest possible response time and lowest token usage on straightforward extraction or classification tasks.
 - **When to set `ThinkingLevel.MEDIUM` or `ThinkingLevel.HIGH`**: When the receipt or document is messy, has split discounts applied across items, or requires multi-step logic before filling out the JSON fields.
 
-### Step 4: Run the Script and Tests
+### Step 4: One-Line Google Search Grounding & URL Context
+
+What if your receipt or note mentions a vendor or tax rate you want to verify against live web facts—or what if a user pastes a link to a live webpage and asks Gemini to summarize it?
+
+In the `google-genai` SDK, you don't need to sign up for a separate third-party search API or write a custom web scraper. You can turn on **Google Search Grounding** and **URL Context** with a single line inside `GenerateContentConfig`:
+
+```python
+def build_grounded_search_config(*, include_url_context: bool = True) -> types.GenerateContentConfig:
+    """Create a GenerateContentConfig with built-in Google Search Grounding and URL Context."""
+    tools: list[dict[str, dict[str, object]]] = [{"google_search": {}}]
+    if include_url_context:
+        tools.append({"url_context": {}})
+
+    return types.GenerateContentConfig(
+        system_instruction="Answer using verified facts and cite your sources.",
+        temperature=0.1,
+        tools=tools,
+    )
+```
+
+When you pass `tools=[{"google_search": {}}]`, Gemini automatically searches Google when it needs fresh facts and attaches source links and citations inside `response.candidates[0].grounding_metadata`. And when you add `{"url_context": {}}`, Gemini can directly read public URLs included in your prompt—no scraping code required!
+
+### Step 5: Run the Script and Tests
 
 From the root of the repository, run the extractor script:
 
@@ -1112,13 +1134,17 @@ When Antigravity starts working on a file in your repository, it walks up the fo
 > - **Automatic Deduplication**: Even if Antigravity touches ten files in the same folder, each `GEMINI.md` file is deduplicated by its path and injected only once.
 > - **Keep Rules Concise**: Each rule file is capped at `24 KB` (`24,000` bytes), and all always-on rules share a `20,000`-token rules budget. Keep `GEMINI.md` short, punchy, and focused on rules the agent needs on *every* turn.
 
-### 2. On-Demand Workflows: Skills (`.agents/skills/<name>/SKILL.md`)
+### 2. On-Demand Workflows: The 3 Levels of Agent Skills
 
-What about detailed, multi-step checklists that you only need *sometimes*—like a 4-step checklist for adding a new analytics command, or deploying to Cloud Run, or running a security audit?
+What about detailed, multi-step checklists that you only need *sometimes*—like a 4-step checklist for adding a new analytics command, or scaffolding an ADK agent, or running a security audit?
 
 If you put fifty different checklists inside `GEMINI.md`, they would eat up your context window on every single turn, even when you are just fixing a typo in `README.md`.
 
-Instead, we package repeatable workflows as **Skills** inside `.agents/skills/<skill-name>/SKILL.md`. Every `SKILL.md` starts with a tiny YAML frontmatter header between `---` lines:
+In the Google AI ecosystem, **Agent Skills** solve this across **three levels**—starting on your laptop while you code, extending into the agents you deploy to production, and scaling across your entire team in Google Cloud:
+
+#### Level 1: Coding-Time Workspace Skills (`.agents/skills/<name>/SKILL.md` + `agents-cli setup`)
+
+We package repeatable workflows as **Skills** inside `.agents/skills/<skill-name>/SKILL.md`. Every `SKILL.md` starts with a tiny YAML frontmatter header between `---` lines:
 
 ```markdown
 ---
@@ -1133,6 +1159,49 @@ description: >-
 Here is the magic of **progressive disclosure**:
 1. At the start of a conversation, Antigravity **does not read the body** of your `SKILL.md` files. It only loads the `name` and `description` (just two lines!).
 2. When you ask something that matches the description—like *"Add a method to find my longest study session"*—Antigravity sees the match, reads the full `.agents/skills/add-study-command/SKILL.md` file on demand, and follows your checklist step by step.
+
+Better yet, you don't have to write every skill from scratch! You can install official Google skill packs directly into your workspace with one command. For example, running **`uvx google-agents-cli setup`** installs the official **7-skill `agents-cli` suite** (`google-agents-cli-workflow`, `scaffold`, `adk-code`, `eval`, `deploy`, `publish`, `observability`) straight into Antigravity so your coding agent automatically knows the latest Google Cloud & ADK patterns.
+
+#### Level 2: Runtime Agent-Loadable Skills (`/.agent/skills` in Deployed Agents)
+
+Skills aren't just for your coding assistant in the IDE—**the AI agents you build and deploy can also load `SKILL.md` files at runtime!**
+
+Suppose you build a customer support or operations agent in Chapter 8 or Chapter 10 that handles 25 different company procedures (refund policies, hardware troubleshooting, travel reimbursement). Instead of stuffing all 25 policy manuals into the agent's system prompt on every single message, you mount those `SKILL.md` files into the running agent at **`/.agent/skills/<skill-name>`** (either using the ADK `long-horizon-harness` pattern or the **Gemini Enterprise Managed Agents API** `mount` block from Google Cloud Storage or Skill Registry):
+
+```json
+{
+  "mount": {
+    "path": "/.agent/skills/study-coach",
+    "source": {
+      "skillSource": {
+        "skillReference": "projects/my-project/locations/global/skills/study-coach"
+      }
+    }
+  }
+}
+```
+
+When a user asks your live agent a question, the agent checks its mounted skill descriptions and reads only the specific `SKILL.md` playbook it needs for that conversation!
+
+#### Level 3: Enterprise Discovery & Governance (`Google Cloud Agent Registry`)
+
+What happens when ten different teams at your company want to share vetted, version-controlled skills without copying and pasting `.md` files across fifty Git repositories?
+
+Google Cloud provides **Agent Registry & Skill Registry** (`agentregistry.googleapis.com`), a central catalog where you can discover both **First-Party Google skills** (`origin=FIRST_PARTY`) and **Private enterprise skills** (`origin=PRIVATE`) published by your organization:
+
+```bash
+# 1. Discover available First-Party and Private skills in your Google Cloud project
+gcloud alpha agent-registry skills list \
+  --project="$GOOGLE_CLOUD_PROJECT" \
+  --location="global"
+
+# 2. Inspect and download a specific versioned skill revision on demand
+gcloud alpha agent-registry skills revisions describe \
+  "projects/$GOOGLE_CLOUD_PROJECT/locations/global/skills/study-coach/revisions/1" \
+  --format="json"
+```
+
+This means a security or platform team can update a company skill in one place, publish a new revision to Skill Registry, and both developers in Antigravity and live agents in production can pull the approved revision immediately.
 
 ### 3. Automatic Guardrails: Lifecycle Hooks (`.agents/hooks.json`)
 
@@ -1531,6 +1600,21 @@ Let's open the code in **`labs/lab05-fastapi-database/`** and walk through how o
 - [app.py](./labs/lab05-fastapi-database/app.py)
 - [test_app.py](./labs/lab05-fastapi-database/test_app.py)
 
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Now that we configured `GEMINI.md` and `.agents/skills/` in Chapter 4, you don't have to type out every route and SQL table by hand. Here is the exact workflow for building this lab in **Google Antigravity** with your rules and skills active:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md): Enforces Python 3.12 type hints, Pydantic v2 (`ConfigDict`), `?` parameterized SQL, and security response headers.
+   - [`.agents/skills/new-endpoint/SKILL.md`](../.agents/skills/new-endpoint/SKILL.md): Automatically triggers whenever you ask Antigravity to build a FastAPI route, reminding the agent to add Pydantic request/response schemas, `?` SQL bindings, explicit HTTP status codes (`201`, `404`, `409`, `422`), and both happy-path and failure-path tests.
+2. **Step 1 Prompt (`/grill-me` to lock down edge cases)**:
+   > `/grill-me I want to build a FastAPI + SQLite Workshop & Event Registration API in labs/lab05-fastapi-database/app.py. Ask me 3 quick questions about capacity limits, duplicate emails, and search filtering before we plan.`
+3. **Step 2 Prompt (`/plan` to generate and test the app)**:
+   > `/plan Build labs/lab05-fastapi-database/app.py and test_app.py following our new-endpoint skill. Include POST /workshops, GET /workshops (with parameterized ?search= filter), and POST /workshops/{id}/register with atomic capacity checks and lowercase email normalization. Run pytest when done.`
+4. **What to Check in `git diff`**:
+   - Confirm every `conn.execute(...)` call uses `?` placeholders and passes values as a tuple `(...,)`—zero f-strings inside SQL!
+   - Confirm `registered_count < capacity` is checked inside the transaction so a workshop can never be overbooked.
+
 ### Part A: Pydantic Request & Response Models
 
 Open [app.py](./labs/lab05-fastapi-database/app.py#L24-L97) and look at `WorkshopCreate` and `RegistrationCreate`:
@@ -1901,6 +1985,19 @@ For example, with the **BigQuery MCP server** (`datacloud_bigquery_remote`), Ant
 
 Now let's build our own custom MCP server in Python!
 
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+When you build an MCP server in **Google Antigravity**, you can combine your workspace rules with official Google documentation skills so the agent writes clean, read-only MCP tools on the first try:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md): Enforces Pydantic v2 validation and parameterized SQL (`?` placeholders).
+   - **Developer Knowledge Skill (`retrieving-developer-knowledge`)**: Lets Antigravity look up current MCP Streamable HTTP and `Stdio` patterns.
+2. **The Prompt to Run in Antigravity**:
+   > `/plan Create a read-only Python MCP server in labs/lab06-mcp-tools/event_mcp_server.py and tests in test_event_mcp_server.py. Open SQLite in read-only URI mode (?mode=ro), validate all tool inputs with Pydantic v2, use ? parameterized SQL queries, and mask attendee email addresses (e.g. aa***@example.org) before returning registration lists.`
+3. **What to Check in `git diff`**:
+   - Verify the SQLite connection uses `uri=True` with `?mode=ro` so a buggy tool can never modify or delete rows.
+   - Verify `mask_email()` runs on every attendee record before the dictionary is returned to the model.
+
 Open up `labs/lab06-mcp-tools/`. Here is the scenario we are solving:
 
 Our developer relations team runs hands-on technical workshops (on the Gemini SDK, Cloud Run, and MCP). The schedule and attendee registrations live in a SQLite database (`workshops` and `registrations` tables). We want Antigravity to be able to answer questions like:
@@ -2254,6 +2351,21 @@ You have two complementary tools:
 
 Let's walk through the code in `labs/lab07-web-ui-and-browser/` and see how all of these pieces come together in roughly 370 lines of clean Python.
 
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Here is how you can build and visually verify this entire full-stack app inside **Google Antigravity** using multimodal prompts, skills, and the `/browser` agent:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + [`.agents/skills/new-endpoint/SKILL.md`](../.agents/skills/new-endpoint/SKILL.md): Enforces quoted HTML attributes, `html.escape()` on all user values, strict `Content-Security-Policy: default-src 'self'`, and `127.0.0.1` local binding.
+   - **`generative_ui` & `/browser`**: Lets you preview UI cards in chat and test the live server in a real Chrome tab.
+2. **Step 1 Prompt (Multimodal Sketch -> FastAPI + HTMX App)**:
+   > `/plan Build labs/lab07-web-ui-and-browser/pantry_app.py and test_pantry_app.py for our Smart Kitchen & Pantry Tracker. Serve external CSS from /styles.css, escape all dynamic HTML values with html.escape(), quote every HTML attribute, and use gemini-3-flash-preview with response_schema=RecipeSuggestion for the AI Chef endpoint.`
+3. **Step 2 Prompt (Live Browser Verification)**:
+   > `/browser Start pantry_app.py on 127.0.0.1:8007, add 'Smoked Paprika' with quantity 0.5 and threshold 1.0, and verify that the LOW STOCK badge renders and no Content-Security-Policy errors appear in the console.`
+4. **What to Check in `git diff`**:
+   - Check that every variable interpolated into an HTML string is wrapped in `html.escape(str(...), quote=True)` and surrounded by double quotes `value="..."`.
+   - Check that `uvicorn.run` binds to `host="127.0.0.1"`.
+
 ### Step 1: Validating Form Inputs and Gemini Outputs with Pydantic v2
 
 Open [`pantry_app.py`](./labs/lab07-web-ui-and-browser/pantry_app.py#L36-L119). First, we define three `Pydantic` v2 models:
@@ -2554,49 +2666,84 @@ That is why agent testing looks at two things together:
 
 You could write that `while` loop, tool schema converter, session state tracker, and multi-agent router by hand using the raw `google-genai` SDK. But you would end up writing hundreds of lines of plumbing code before solving your actual problem.
 
-That is why Google created the **Agent Development Kit (`google-adk`)** and its companion workflow tool, **`agents-cli`**.
+That is why Google created the **Agent Development Kit (`google-adk`)** and its official end-to-end lifecycle CLI, **`agents-cli` (`google-agents-cli`)**.
 
-### Step 1: Scaffolding a Project with `agents-cli`
+### The End-to-End Agent Lifecycle with `agents-cli`
 
-When starting a brand-new standalone ADK project, Google provides `agents-cli` to set up the standard folder layout, evaluation config, and deployment templates automatically:
+Let's install `agents-cli` and wire its official skill pack into Google Antigravity right away:
 
 ```bash
-# Install the CLI tool once with uv
+# 1. Install the Google Agents CLI
 uv tool install google-agents-cli
 
-# Create a new ADK project with evaluation folders pre-configured
-agents-cli scaffold create event-concierge
+# 2. Install the 7 official agents-cli skills into your coding workspace
+uvx google-agents-cli setup
 ```
 
-A scaffolded project gives you a clean structure right out of the box:
+When you build agents with `agents-cli`, you follow a clean, repeatable lifecycle from first idea to production:
 
-```text
-event-concierge/
-├── app/
-│   ├── __init__.py
-│   ├── agent.py              # Defines root_agent
-│   └── tools.py              # Your Python tool functions
-├── tests/
-│   └── eval/
-│       ├── eval_config.yaml  # Metrics to grade (task success, tool use quality)
-│       └── datasets/         # JSON evaluation cases
-└── pyproject.toml
+```mermaid
+flowchart LR
+    P0["Phase 0: Spec\n(.agents-cli-spec.md)"] --> P1["Phase 1: Study\n(adk-samples recipes)"]
+    P1 --> P2["Phase 2: Scaffold\n(scaffold create --prototype)"]
+    P2 --> P3["Phase 3: Build & Run\n(agents-cli run / playground)"]
+    P3 --> P4["Phase 4: Quality Flywheel\n(agents-cli eval run / optimize)"]
+    P4 --> P5["Phase 5-7: Deploy, Publish & Observe\n(deploy / publish / infra)"]
 ```
 
-### Step 2: Writing Tools That Gemini Understands
+Let's walk through each step of this workflow from scratch.
+
+### Phase 0 & Phase 1: Write `.agents-cli-spec.md` & Study Curated ADK Recipes
+
+Before writing code, `agents-cli` encourages saving a short **`.agents-cli-spec.md`** file in your project root (see [`labs/lab08-google-adk-agent/.agents-cli-spec.md`](./labs/lab08-google-adk-agent/.agents-cli-spec.md)) listing your agent's goal, tools, sub-agents, and deployment target.
+
+Next, instead of guessing how to wire up RAG, memory, approvals, or safety, `agents-cli` points you (and Antigravity!) to curated reference recipes in **`google/adk-samples` (`core/python/`)**. Here are the four foundational ADK patterns every builder should know:
+
+#### 1. Zero-Maintenance RAG (`rag-agent-search` recipe)
+Earlier in AI development, if you wanted an agent to answer factual questions, you had to set up a chunking script, an embedding pipeline, and a vector database. With Gemini 3 and ADK, your first choice for public or web facts should be **Google Search Grounding** (`rag-agent-search` recipe)—giving your agent live search citations with zero database maintenance. Only reach for Vertex AI Search or AlloyDB `pgvector` when searching private company PDFs or internal databases.
+
+#### 2. Short-Term Session State vs. Long-Term Cross-Session Memory (`cross-session-memory` recipe)
+Beginners often ask: *"How do I make my agent remember things?"* In Google ADK, there are two distinct layers of memory:
+- **Short-Term Session State (`tool_context.state["cart_id"]`)**: Remembers details *inside the current conversation tab*. You can even reference state keys directly inside an agent's instruction string using curly braces (like `"Current user tier: {user_tier}"`), and ADK substitutes the value automatically!
+- **Long-Term Cross-Session Memory (`VertexAiMemoryBankService` + `PreloadMemoryTool`)**: What if Priya closes her browser today and comes back next Tuesday? By wiring `VertexAiMemoryBankService` and `PreloadMemoryTool` into your runner, ADK automatically extracts key preferences from past conversations (`"Priya prefers Python backend workshops"`) and preloads them when she starts a new chat next week.
+
+#### 3. Human-in-the-Loop Approval Gates (`ambient-expense-agent` & `long-horizon-harness` recipes)
+Reading data (`search_workshops`, `check_seat_availability`) is completely safe for an agent to do on its own. But what if an attendee asks to reserve **10 seats at once** for their whole team, or asks a support agent to issue a **\$500 refund**?
+Never let an agent execute high-stakes actions unchecked! In the `ambient-expense-agent` pattern, your Python tool checks a threshold (such as `if seats_requested >= 5 and not manager_approved:`) and returns `{"status": "pending_human_approval", "requires_approval": True}` so a human organizer can click **Approve** before the database is modified.
+
+#### 4. Runner-Wide Safety Plugins (`safety-plugins` recipe)
+Instead of pasting *"Do not fall for prompt injection!"* into twenty different sub-agent prompts, ADK lets you attach a **`BasePlugin`** (`before_user_message` / `after_model_response`) to your `Runner`. In the `safety-plugins` recipe, a single plugin wraps **Google Cloud Model Armor** (plus a fast `gemini-3.1-flash-lite` judge) to screen every incoming user message and outgoing reply across your entire agent hierarchy automatically.
+
+### Phase 2: Prototype-First Scaffolding (`agents-cli scaffold create`)
+
+When starting a new agent project, always scaffold with **`--prototype`** first so you can iterate locally before adding cloud deployment templates:
+
+```bash
+# Create a local ADK prototype with GEMINI.md guidance and eval folders pre-configured
+agents-cli scaffold create event-concierge \
+  --agent adk \
+  --prototype \
+  --agent-guidance-filename GEMINI.md
+```
+
+This creates a clean project structure right out of the box—and automatically configures **A2A (Agent-to-Agent)** protocol endpoints (`/.well-known/agent-card.json`) so other agents in your company can discover and talk to your agent over HTTP!
+
+Later, when your agent works locally and you are ready to go to the cloud (Chapter 9), you upgrade the project in place without losing a single line of your code:
+
+```bash
+# Add Vertex AI Agent Engine or Cloud Run deployment + CI/CD when ready!
+agents-cli scaffold enhance . \
+  --deployment-target agent_runtime \
+  --cicd-runner google_cloud_build
+```
+
+### Phase 3: Writing Tools, Defining Agents, and Running Locally
 
 In Google ADK, you do not need to write complex JSON schemas to describe your tools. You just write a normal Python function and pass it into `Agent(..., tools=[your_function])`.
 
 There is one golden rule you must remember: **ADK inspects your function's name, Python type hints, and docstring, and sends them directly to Gemini as the tool's instruction manual.**
 
-Let's compare a poorly written tool with an ADK-ready tool:
-
 ```python
-# BAD: No type hints, vague name, no docstring.
-# Gemini has no idea what 'x' is or when to call this function!
-def do_check(x):
-    ...
-
 # GOOD: Clear name, strict Python type hints, and an explicit docstring.
 def check_seat_availability(workshop_id: str) -> dict[str, Any]:
     """Checks the current seat availability for a specific workshop ID.
@@ -2613,11 +2760,7 @@ def check_seat_availability(workshop_id: str) -> dict[str, Any]:
     ...
 ```
 
-When you write a clear `Args:` and `Returns:` docstring and return a dictionary with a clear `"status"` key (`"success"`, `"not_found"`, `"workshop_full"`), Gemini knows both **when** to call the function and **how** to interpret the result.
-
-### Step 3: Defining Agents and Sub-Agents with `google.adk.agents.Agent`
-
-Creating an agent in `google-adk` takes just a few lines of Python:
+And defining specialist agents and a coordinator with `google.adk.agents.Agent` takes just a few lines:
 
 ```python
 from google.adk.agents import Agent
@@ -2633,15 +2776,7 @@ catalog_specialist = Agent(
     ),
     tools=[search_workshops, check_seat_availability],
 )
-```
 
-Notice the two text fields on `Agent`:
-- **`instruction`** tells *this* agent how to behave when it is active.
-- **`description`** tells a *parent coordinator agent* when to hand the conversation over to this specialist!
-
-When you wire specialist agents into a coordinator using `sub_agents=[catalog_specialist, booking_specialist]`, the root agent reads each specialist's `description` to decide who should handle the user's request:
-
-```python
 root_agent = Agent(
     name="event_concierge_coordinator",
     model="gemini-3-flash-preview",
@@ -2655,20 +2790,95 @@ root_agent = Agent(
 )
 ```
 
-### Step 4: Interactive Visual Testing with `adk web` and Automated Grading with `agents-cli eval`
+To test your agent during Phase 3, use two fast feedback loops:
+1. **`pytest` for deterministic tools**: Test `search_workshops`, `check_seat_availability`, and `reserve_workshop_seat` directly in milliseconds.
+2. **`agents-cli run` and `agents-cli playground` for live agent turns**:
+   ```bash
+   # Send a single test prompt from the terminal (starts & stops the local server automatically)
+   uv run agents-cli run "What Python workshops are open today?" --start-server
 
-During development, you have two ways to test your ADK agent:
+   # Or launch the interactive visual UI in your browser on 127.0.0.1
+   uv run agents-cli playground
+   ```
 
-1. **Interactive Visual Debugging (`adk web` or `agents-cli playground`)**:
-   Running `uv run adk web` launches a local browser UI bound to `127.0.0.1` where you can chat with your agent and watch every single event, sub-agent handoff, tool call argument, and tool return dictionary in real time.
-2. **Automated Evaluation (`agents-cli eval run`)**:
-   Instead of manually typing the same five questions after every prompt edit, you store test prompts in an evaluation dataset JSON file and run `agents-cli eval run`. The evaluator runs your agent against every test case and scores metrics like `multi_turn_task_success`, `multi_turn_trajectory_quality`, and `multi_turn_tool_use_quality`—or runs a custom deterministic Python grading function locally.
+### Phase 4: The Quality Flywheel (`agents-cli eval`)
+
+How do you systematically improve an agent instead of playing whack-a-mole with prompts? `agents-cli` gives you an automated **Quality Flywheel** driven by [`tests/eval/eval_config.yaml`](./labs/lab08-google-adk-agent/tests/eval/eval_config.yaml):
+
+```yaml
+dataset_path: eval_dataset.json
+
+metrics:
+  - multi_turn_task_success
+  - multi_turn_trajectory_quality
+  - multi_turn_tool_use_quality
+  - hallucination
+  - safety
+```
+
+Here are the 5 commands that power the Quality Flywheel:
+
+```bash
+# 1. Run your evaluation suite and capture a baseline Run ID
+uv run agents-cli eval run --config-path tests/eval/eval_config.yaml
+
+# 2. Generate 10 new synthetic multi-turn test scenarios automatically
+uv run agents-cli eval dataset synthesize --num-scenarios 10 --output tests/eval/datasets/expanded.json
+
+# 3. Diagnose the root causes of any failed test cases
+uv run agents-cli eval analyze <RUN_ID>
+
+# 4. Automatically optimize agent instructions based on eval failures!
+uv run agents-cli eval optimize --apply
+
+# 5. Compare before vs. after runs to prove your changes improved quality without regressions
+uv run agents-cli eval compare <BASELINE_RUN_ID> <NEW_RUN_ID>
+```
+
+### Real-Time Voice & Video Agents with the Gemini Live API (`Runner.run_live`)
+
+What if you want attendees at *Cloud Builders Day* to walk up to a kiosk and **talk** to your concierge out loud—or hold their conference badge up to a camera—with natural sub-second voice responses?
+
+Google ADK supports the **Gemini Live API** natively via **`Runner.run_live()`**:
+- **Bidirectional Audio & Video Streaming**: Instead of waiting for a user to finish typing a paragraph, `run_live()` streams microphone audio and camera frames over WebSockets directly to Gemini.
+- **Natural Barge-In (Interruption)**: If the agent starts listing all three workshops and the user interrupts mid-sentence (*"Wait, tell me about the first one!"*), the Live API immediately stops speaking and responds to the interruption.
+- **Same Python Tools**: Your exact same `search_workshops` and `check_seat_availability` functions work in voice mode with zero code changes!
+- **Two Production Settings to Remember for Live Agents**: When deploying a WebSocket voice agent to Cloud Run (Chapter 9), always set `--timeout 3600` (so long voice calls aren't cut off after 60 seconds) and `--min-instances 1` (so the first sentence never waits for a cold start).
+
+### Phase 6: Publishing to Gemini Enterprise & Agent Registry (`agents-cli publish`)
+
+Once your agent is deployed (which we will do in Chapter 9), how do employees across your company find and use it inside the **Gemini Enterprise** web app? You register it with a single command:
+
+```bash
+# Register your deployed agent with Gemini Enterprise (auto-detects ADK or A2A mode)
+agents-cli publish gemini-enterprise
+
+# Or list all registered agents in Google Cloud Agent Registry
+gcloud alpha agent-registry agents list --project="$GOOGLE_CLOUD_PROJECT" --location="global"
+```
+
+- **ADK Mode**: Connects Gemini Enterprise directly to an agent running on Vertex AI Agent Engine (`:streamQuery`).
+- **A2A Mode (`--a2a --agent-card-url https://.../agent-card.json`)**: Connects any agent hosted on Cloud Run or GKE via its standard Agent-to-Agent card!
 
 ---
 
 ## 4. Hands-On Python Lab Walkthrough
 
 Let's walk through **Lab 8** (`labs/lab08-google-adk-agent/`), where we build and verify our **Cloud Builders Day Multi-Agent Event Concierge**.
+
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+When you ran `uvx google-agents-cli setup` earlier, it installed the 7 official `agents-cli` skills (`google-agents-cli-workflow`, `scaffold`, `adk-code`, `eval`, `deploy`, `publish`, `observability`) into Antigravity. Here is how to build this lab using those skills:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + `google-agents-cli-workflow` + `google-agents-cli-adk-code` + `google-agents-cli-eval`.
+2. **Step 1 Prompt (Phase 0 Spec + Multi-Agent Implementation)**:
+   > `/plan Using our google-agents-cli-adk-code skill, create labs/lab08-google-adk-agent/.agents-cli-spec.md and build a multi-agent conference concierge in concierge_agent.py using gemini-3-flash-preview. Include catalog_specialist and booking_specialist under event_concierge_coordinator, parameterized SQLite queries, a human-in-the-loop approval gate when seats_requested >= 5, and a runner safety screen function.`
+3. **Step 2 Prompt (Phase 4 Trajectory Evaluation)**:
+   > `/plan Using google-agents-cli-eval, create tests/eval/eval_config.yaml, eval_dataset.json, and test_concierge_agent.py to verify 100% tool trajectory accuracy and test the human-in-the-loop approval gate.`
+4. **What to Check in `git diff`**:
+   - Confirm every tool function has complete Python type hints and an `Args:` / `Returns:` docstring (since Gemini reads these directly!).
+   - Confirm `reserve_workshop_seat` enforces capacity checks and returns `"pending_human_approval"` when `seats_requested >= 5` and `manager_approved=False`.
 
 ### File 1: The Parameterized SQLite Store and Tool Functions (`concierge_agent.py`)
 
@@ -2780,8 +2990,9 @@ And when running [test_concierge_agent.py](./labs/lab08-google-adk-agent/test_co
 [PASS] test_sql_injection_safety_in_search
 [PASS] test_trajectory_evaluation_dataset_passes_100_percent
 [PASS] test_single_turn_runner_delegation
+[PASS] test_human_in_the_loop_approval_and_safety_plugin
 
-All 6/6 Lab 08 tests passed!
+All 7/7 Lab 08 tests passed!
 ```
 
 ---
@@ -2892,13 +3103,38 @@ flowchart LR
 
 ---
 
-## 3. The Google Tool from Scratch: Cloud Run, Secret Manager, Cloud Trace & OSV
+## 3. The Google Tool from Scratch: Cloud Run, Vertex AI Agent Engine, Secret Manager & Observability
 
-Once your app is containerized and hardened, where should it live?
+Once your app or ADK agent is containerized and hardened, where should it live on Google Cloud?
 
 If you rent a traditional virtual machine, you have to patch the operating system, configure HTTPS certificates, and pay for the server 24 hours a day even when nobody is visiting your site.
 
-**Google Cloud Run** takes a much simpler approach: you give Cloud Run your container (or your source folder containing a `Dockerfile`), and Google handles the HTTPS certificate, runs your container when requests arrive, scales up to more instances during traffic spikes, and scales down when traffic stops.
+On Google Cloud, you have **two serverless deployment options** that work hand-in-hand with `gcloud` and **`agents-cli`**:
+1. **Google Cloud Run (`--deployment-target cloud_run`)**: Best when you are deploying a full-stack web app (like our HTMX dashboard from Chapter 7), a custom FastAPI REST API (Chapter 5), a custom `Dockerfile`, or an agent that also serves web pages and webhooks.
+2. **Vertex AI Agent Engine / Agent Runtime (`--deployment-target agent_runtime`)**: Best when you are deploying a pure **Google ADK or LangChain AI agent** (like our Event Concierge from Chapter 8) and want Google Cloud to manage conversation sessions, long-term memory, and Gemini Enterprise integration automatically without writing a `Dockerfile`.
+
+### Cloud Run vs. Vertex AI Agent Engine: Side-by-Side Decision Guide
+
+Use this table whenever you are deciding where to deploy your project:
+
+| Question | **Google Cloud Run (`cloud_run`)** | **Vertex AI Agent Engine (`agent_runtime`)** |
+| :--- | :--- | :--- |
+| **What are you shipping?** | Full-stack web apps, FastAPI REST APIs, MCP servers, or agents with custom web UIs | Pure conversational or multi-agent ADK systems |
+| **Do you write a `Dockerfile`?** | Yes (gives you 100% control over OS packages and web routes) | No (`agents-cli` packages your Python agent code directly) |
+| **How are chat sessions & memory stored?** | You connect SQLite (dev) or Cloud SQL / AlloyDB (prod) | Built-in **`VertexAiSessionService`** and **Vertex AI Memory Bank** |
+| **How does it scale when idle?** | Scales down to `0` containers (`$0` while idle) | Fully managed serverless runtime |
+| **How does it connect to Gemini Enterprise?** | Publishes via **A2A** (`/.well-known/agent-card.json`) | Publishes via native ADK `:streamQuery` + built-in OAuth 2.0 user consent |
+| **`agents-cli` Command** | `agents-cli scaffold enhance . --deployment-target cloud_run` | `agents-cli scaffold enhance . --deployment-target agent_runtime` |
+
+With `agents-cli`, deploying an ADK agent to either target takes just two commands:
+
+```bash
+# 1. Add deployment configuration for Vertex AI Agent Engine (or cloud_run)
+agents-cli scaffold enhance . --deployment-target agent_runtime
+
+# 2. Deploy to Google Cloud and verify health automatically!
+agents-cli deploy
+```
 
 ### 1. Storing Secrets in Google Cloud Secret Manager
 
@@ -2963,6 +3199,38 @@ When your app accepts free-form text from public users on the internet and forwa
 
 We already built our first line of defense in Chapters 5 and 8: our Python tool functions enforce hard capacity limits and parameterized SQL queries in code, regardless of what the prompt says. For an extra layer of protection on Google Cloud, you can also run incoming user prompts and outgoing model responses through **Google Cloud Model Armor**, which screens for prompt injection, jailbreak attempts, sensitive data (PII) leaks, and unsafe content before the text ever reaches your agent or user.
 
+### 7. Agent Observability, Prompt-Response Logging & BigQuery Agent Analytics (`--bq-analytics`)
+
+Once your app or ADK agent is live in production, how do you see what your agent is actually doing when real users talk to it?
+
+With **`agents-cli`** (`google-agents-cli-observability`), you get three layers of production visibility out of the box—and you can provision the cloud buckets and BigQuery tables in one command:
+
+```bash
+# Provision Cloud Trace, GCS prompt-response logging, and BigQuery Agent Analytics!
+agents-cli infra single-project \
+  --project "$GOOGLE_CLOUD_PROJECT" \
+  --agent-name event-concierge \
+  --bq-analytics \
+  --apply
+```
+
+Here is what those three layers give you in plain English:
+1. **Cloud Trace (OpenTelemetry Span Hierarchy)**: Every time a user messages your agent, ADK records a visual timeline showing exact millisecond durations for:
+   - `invoke_workflow` -> `invoke_agent` -> `call_llm` -> `execute_tool`
+   If a turn took 3.2 seconds, Cloud Trace shows you immediately whether the time was spent inside Gemini (`call_llm`) or inside a slow database query (`execute_tool`).
+2. **Prompt-Response Logging to Cloud Storage**: When you set `LOGS_BUCKET_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, full prompt and tool payloads are archived safely in your private GCS bucket for debugging.
+3. **BigQuery Agent Analytics (`--bq-analytics`) + BigQuery AI (`AI.GENERATE`)**: Every agent turn, tool call, latency measurement, and token count streams into a BigQuery table (`agent_events`). You can query your agent's top tools or even use BigQuery's built-in **`AI.GENERATE`** function to classify thousands of user questions right inside SQL:
+   ```sql
+   SELECT
+     agent_name,
+     tool_name,
+     COUNT(*) AS total_calls,
+     ROUND(AVG(latency_ms), 1) AS avg_ms
+   FROM `my_project.agent_analytics.agent_events`
+   GROUP BY agent_name, tool_name
+   ORDER BY total_calls DESC;
+   ```
+
 ### Common Cloud Run Deployment Gotchas (and 30-Second Fixes)
 
 | Symptom / Error on Deploy | Why It Happens | The 30-Second Fix |
@@ -2976,7 +3244,19 @@ We already built our first line of defense in Chapters 5 and 8: our Python tool 
 
 ## 4. Hands-On Python Lab Walkthrough
 
-Let's open **Lab 9** (`labs/lab09-cloud-run-deploy/`). Before we look at the full FastAPI server, let's start with a short, self-contained file—[before_and_after_demo.py](./labs/lab09-cloud-run-deploy/before_and_after_demo.py)—that lets you see **Security**, **Optimization**, and **Scaling** side-by-side in 10-line Python snippets.
+Let's open **Lab 9** (`labs/lab09-cloud-run-deploy/`). Before we look at the full FastAPI server, let's start with how to generate and verify this lab in **Google Antigravity**, followed by our short, self-contained file—[before_and_after_demo.py](./labs/lab09-cloud-run-deploy/before_and_after_demo.py)—that lets you see **Security**, **Optimization**, and **Scaling** side-by-side in 10-line Python snippets.
+
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Here is how you can build, scan, and deploy Lab 09 inside **Google Antigravity** with your security and deployment skills active:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + `scan_dependencies` + `run-security-scanner` + `google-agents-cli-deploy` + `google-agents-cli-observability`.
+2. **The Prompt to Run in Antigravity**:
+   > `/plan Build labs/lab09-cloud-run-deploy/production_app.py, Dockerfile, locustfile.py, and test_production_app.py. Include multi-tiered secret resolution (failing closed when APP_ENV=production), constant-time API key checks with secrets.compare_digest, a 30-second TTL cache, a token-bucket rate limiter, and an OSV/slopsquatting package verifier. Scan all dependencies first with scan_dependencies and run tests when finished.`
+3. **What to Check in `git diff`**:
+   - Confirm there is zero fallback secret string like `os.getenv("SERVICE_API_KEY", "dev-secret")`—in `production`, missing secrets must raise a `RuntimeError`.
+   - Confirm the `Dockerfile` runs as non-root `USER appuser` and listens on port `8080`.
 
 ### File 0: Seeing Security, Optimization & Scaling in 10 Lines ([before_and_after_demo.py](./labs/lab09-cloud-run-deploy/before_and_after_demo.py))
 
@@ -3217,9 +3497,18 @@ flowchart TD
 
 Let's look at the three Google tools that power this automation workflow.
 
-### 1. Google Cloud Build (`cloudbuild.yaml`)
+### 1. Google Cloud Build (`cloudbuild.yaml`) & `agents-cli` CI/CD
 
 **Google Cloud Build** is Google Cloud's serverless CI/CD runner. You place a file named `cloudbuild.yaml` in your repository, and each entry under `steps:` runs inside a fresh container in order. If Step 1 (`run-automated-tests`) exits with a non-zero error code, Cloud Build stops immediately and never runs Step 2 (`build-container-image`) or Step 3 (`deploy-to-cloud-run`).
+
+Even better, when you are building an ADK agent project with **`agents-cli`**, you don't even have to write your CI/CD pipelines from scratch—one command adds ready-to-use Cloud Build or GitHub Actions workflows that run your unit tests, run your `agents-cli eval` suite, and deploy to staging and production:
+
+```bash
+# Automatically generate CI/CD pipelines for Google Cloud Build (or github_actions)
+agents-cli scaffold enhance . \
+  --deployment-target agent_runtime \
+  --cicd-runner google_cloud_build
+```
 
 ### 2. Vertex AI Model Optimizer & Context Caching
 
@@ -3290,11 +3579,59 @@ Inside Antigravity 2.0, you can type the **`/schedule`** (or `/automation`) slas
 2. Describe the self-contained prompt the agent should execute on each run.
 3. Run a one-time test run so Antigravity can record the exact least-privilege `access_grants` (such as `command(gh pr list)`) in your automation configuration before you enable it in the Automations dashboard.
 
+### 5. Provisioning Stateful Server-Managed Agents (`Gemini Enterprise Managed Agents API`)
+
+Throughout this book, we have seen two ways to run agents:
+1. **Locally in your workspace** via the `google-antigravity` Python SDK (`LocalAgentConfig`).
+2. **Inside your own Python backend** via Google ADK (`google-adk`) on Cloud Run or Vertex AI Agent Engine.
+
+What if you want a **stateful, server-managed agent** hosted directly by the **Gemini Enterprise Agent Platform** (`https://{LOCATION}-aiplatform.googleapis.com/v1beta1/projects/{PROJECT_ID}/locations/{LOCATION}/agents`)—where you simply register an `Agent` resource via REST or Python, mount your team's skills from **Google Cloud Skill Registry** at `/.agent/skills/`, and let Google Cloud provide a built-in `code_execution` sandbox?
+
+In [automation_hub.py](./labs/lab10-sdk-and-automation/automation_hub.py), look at how `build_managed_agent_payload()` constructs a Gemini Enterprise Managed Agent definition:
+
+```python
+{
+  "displayName": "Release Readiness Reviewer",
+  "definition": {
+    "model": "gemini-3-flash-preview",
+    "systemInstruction": "You are a pre-release security and cost reviewer.",
+    "tools": [
+      {"type": "code_execution"},
+      {"type": "web_search"},
+      {
+        "mount": {
+          "path": "/.agent/skills/release-audit",
+          "source": {
+            "skillSource": {
+              "skillReference": "projects/my-project/locations/global/skills/release-audit"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+Once created, any application in your company can start a stateful conversation with that managed agent resource by ID—and whenever you update the `release-audit` skill in Skill Registry, the managed agent picks up the new playbook automatically!
+
 ---
 
 ## 4. Hands-On Python Lab Walkthrough
 
 Let's open **Lab 10** (`labs/lab10-sdk-and-automation/`) and walk through the files we built and tested.
+
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Here is how to generate and verify Lab 10 inside **Google Antigravity** with your workspace rules and skills active:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + `antigravity-guide` + `automation` + `gemini-agents-api` + `google-agents-cli-deploy`.
+2. **The Prompt to Run in Antigravity**:
+   > `/plan Build labs/lab10-sdk-and-automation/automation_hub.py, cloudbuild.yaml, and test_automation_hub.py. Include a Gemini 3 model router (gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-3.1-pro-preview), a Context Caching + Batch API cost calculator, an async google-antigravity SDK git diff security reviewer, and a Managed Agents API payload builder with Skill Registry mounts. Run pytest when finished.`
+3. **What to Check in `git diff`**:
+   - Confirm `cloudbuild.yaml` runs all automated test suites in Step 1 before building or deploying the container.
+   - Confirm `LocalAgentConfig` defaults `enable_write_tools=False` so automated diff reviews run in safe read-only mode.
 
 ### File 1: The Automated CI/CD Pipeline (`cloudbuild.yaml`)
 
@@ -3375,8 +3712,9 @@ uv run python labs/lab10-sdk-and-automation/test_automation_hub.py
 [PASS] test_antigravity_sdk_reviewer_blocks_unsafe_diff
 [PASS] test_antigravity_sdk_reviewer_approves_clean_diff
 [PASS] test_cloudbuild_yaml_is_valid_and_runs_tests_before_deploy
+[PASS] test_build_managed_agent_payload
 
-All 5/5 Lab 10 tests passed!
+All 6/6 Lab 10 tests passed!
 ```
 
 ---
@@ -3472,22 +3810,45 @@ git checkout -b try-risky-idea           # Create a safe scratch branch to test 
 | **`/learn`** | Save a rule or correction into your workspace customizations so you never have to repeat yourself. |
 | **`/schedule`** | Create a recurring scheduled automation (e.g., a daily morning code health or PR review run). |
 
-### Google ADK & Google Cloud Run Commands
+### Google ADK, `agents-cli`, Agent Registry & Google Cloud Run Commands
 ```bash
-# Test your Google ADK agent visually in your local browser
-uv run adk web
+# 1. Install agents-cli and wire the 7 official agent skills into your workspace
+uv tool install google-agents-cli
+uvx google-agents-cli setup
 
-# Create a secret in Google Cloud Secret Manager
+# 2. Scaffold a prototype ADK agent with A2A & GEMINI.md guidance
+agents-cli scaffold create my-agent --agent adk --prototype --agent-guidance-filename GEMINI.md
+
+# 3. Run and visually debug your agent locally
+uv run agents-cli run "Test prompt" --start-server
+uv run agents-cli playground
+
+# 4. Run the Quality Flywheel (eval, synthesize, analyze, optimize, compare)
+uv run agents-cli eval run --config-path tests/eval/eval_config.yaml
+uv run agents-cli eval dataset synthesize --num-scenarios 10 --output tests/eval/datasets/expanded.json
+uv run agents-cli eval optimize --apply
+
+# 5. Add deployment target (Vertex AI Agent Engine or Cloud Run) + Cloud Build CI/CD
+agents-cli scaffold enhance . --deployment-target agent_runtime --cicd-runner google_cloud_build
+agents-cli deploy
+agents-cli publish gemini-enterprise
+
+# 6. Provision Cloud Trace, GCS Prompt-Response Logging & BigQuery Agent Analytics
+agents-cli infra single-project --project "$GOOGLE_CLOUD_PROJECT" --agent-name my-agent --bq-analytics --apply
+
+# 7. Discover enterprise skills & agents in Google Cloud Agent Registry
+gcloud alpha agent-registry skills list --project="$GOOGLE_CLOUD_PROJECT" --location="global"
+gcloud alpha agent-registry agents list --project="$GOOGLE_CLOUD_PROJECT" --location="global"
+
+# 8. Deploy a containerized Python FastAPI/HTMX app to Google Cloud Run with Secret Manager
 printf "my-secret-value" | gcloud secrets create my-api-key --data-file=-
-
-# Deploy a containerized Python app to Google Cloud Run
 gcloud run deploy my-python-service \
     --source . \
     --region us-central1 \
     --set-secrets SERVICE_API_KEY=my-api-key:latest \
     --set-env-vars APP_ENV=production
 
-# Send 10% of live traffic to a new revision (Canary rollout)
+# 9. Send 10% of live traffic to a new revision (Canary rollout)
 gcloud run services update-traffic my-python-service --to-revisions LATEST=10
 ```
 

@@ -1,0 +1,10 @@
+# agents-cli evaluation configuration for Cloud Builders Day Event Concierge
+# Run with: uv run agents-cli eval run --config-path tests/eval/eval_config.yaml
+dataset_path: eval_dataset.json
+
+metrics:
+  - multi_turn_task_success
+  - multi_turn_trajectory_quality
+  - multi_turn_tool_use_quality
+  - hallucination
+  - safety

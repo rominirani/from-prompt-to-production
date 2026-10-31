@@ -221,6 +221,19 @@ def build_multimodal_receipt_part(image_path: str | Path, mime_type: str = "imag
     return types.Part.from_bytes(data=resolved.read_bytes(), mime_type=mime_type)
 
 
+def build_grounded_search_config(*, include_url_context: bool = True) -> types.GenerateContentConfig:
+    """Build a `GenerateContentConfig` with one-line Google Search Grounding and URL Context."""
+    tools: list[dict[str, dict[str, object]]] = [{"google_search": {}}]
+    if include_url_context:
+        tools.append({"url_context": {}})
+
+    return types.GenerateContentConfig(
+        system_instruction="Answer using verified facts and cite your web sources.",
+        temperature=0.1,
+        tools=tools,
+    )
+
+
 if __name__ == "__main__":
     print("=== Chapter 1 Lab: Structured Receipt Extractor ===")
     extracted = extract_receipt_from_text(SAMPLE_RECEIPT_NOTE)

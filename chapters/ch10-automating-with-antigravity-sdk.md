@@ -74,9 +74,18 @@ flowchart TD
 
 Let's look at the three Google tools that power this automation workflow.
 
-### 1. Google Cloud Build (`cloudbuild.yaml`)
+### 1. Google Cloud Build (`cloudbuild.yaml`) & `agents-cli` CI/CD
 
 **Google Cloud Build** is Google Cloud's serverless CI/CD runner. You place a file named `cloudbuild.yaml` in your repository, and each entry under `steps:` runs inside a fresh container in order. If Step 1 (`run-automated-tests`) exits with a non-zero error code, Cloud Build stops immediately and never runs Step 2 (`build-container-image`) or Step 3 (`deploy-to-cloud-run`).
+
+Even better, when you are building an ADK agent project with **`agents-cli`**, you don't even have to write your CI/CD pipelines from scratch—one command adds ready-to-use Cloud Build or GitHub Actions workflows that run your unit tests, run your `agents-cli eval` suite, and deploy to staging and production:
+
+```bash
+# Automatically generate CI/CD pipelines for Google Cloud Build (or github_actions)
+agents-cli scaffold enhance . \
+  --deployment-target agent_runtime \
+  --cicd-runner google_cloud_build
+```
 
 ### 2. Vertex AI Model Optimizer & Context Caching
 
@@ -147,11 +156,59 @@ Inside Antigravity 2.0, you can type the **`/schedule`** (or `/automation`) slas
 2. Describe the self-contained prompt the agent should execute on each run.
 3. Run a one-time test run so Antigravity can record the exact least-privilege `access_grants` (such as `command(gh pr list)`) in your automation configuration before you enable it in the Automations dashboard.
 
+### 5. Provisioning Stateful Server-Managed Agents (`Gemini Enterprise Managed Agents API`)
+
+Throughout this book, we have seen two ways to run agents:
+1. **Locally in your workspace** via the `google-antigravity` Python SDK (`LocalAgentConfig`).
+2. **Inside your own Python backend** via Google ADK (`google-adk`) on Cloud Run or Vertex AI Agent Engine.
+
+What if you want a **stateful, server-managed agent** hosted directly by the **Gemini Enterprise Agent Platform** (`https://{LOCATION}-aiplatform.googleapis.com/v1beta1/projects/{PROJECT_ID}/locations/{LOCATION}/agents`)—where you simply register an `Agent` resource via REST or Python, mount your team's skills from **Google Cloud Skill Registry** at `/.agent/skills/`, and let Google Cloud provide a built-in `code_execution` sandbox?
+
+In [automation_hub.py](../labs/lab10-sdk-and-automation/automation_hub.py), look at how `build_managed_agent_payload()` constructs a Gemini Enterprise Managed Agent definition:
+
+```python
+{
+  "displayName": "Release Readiness Reviewer",
+  "definition": {
+    "model": "gemini-3-flash-preview",
+    "systemInstruction": "You are a pre-release security and cost reviewer.",
+    "tools": [
+      {"type": "code_execution"},
+      {"type": "web_search"},
+      {
+        "mount": {
+          "path": "/.agent/skills/release-audit",
+          "source": {
+            "skillSource": {
+              "skillReference": "projects/my-project/locations/global/skills/release-audit"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+Once created, any application in your company can start a stateful conversation with that managed agent resource by ID—and whenever you update the `release-audit` skill in Skill Registry, the managed agent picks up the new playbook automatically!
+
 ---
 
 ## 4. Hands-On Python Lab Walkthrough
 
 Let's open **Lab 10** (`labs/lab10-sdk-and-automation/`) and walk through the files we built and tested.
+
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Here is how to generate and verify Lab 10 inside **Google Antigravity** with your workspace rules and skills active:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + `antigravity-guide` + `automation` + `gemini-agents-api` + `google-agents-cli-deploy`.
+2. **The Prompt to Run in Antigravity**:
+   > `/plan Build labs/lab10-sdk-and-automation/automation_hub.py, cloudbuild.yaml, and test_automation_hub.py. Include a Gemini 3 model router (gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-3.1-pro-preview), a Context Caching + Batch API cost calculator, an async google-antigravity SDK git diff security reviewer, and a Managed Agents API payload builder with Skill Registry mounts. Run pytest when finished.`
+3. **What to Check in `git diff`**:
+   - Confirm `cloudbuild.yaml` runs all automated test suites in Step 1 before building or deploying the container.
+   - Confirm `LocalAgentConfig` defaults `enable_write_tools=False` so automated diff reviews run in safe read-only mode.
 
 ### File 1: The Automated CI/CD Pipeline (`cloudbuild.yaml`)
 
@@ -232,8 +289,9 @@ uv run python labs/lab10-sdk-and-automation/test_automation_hub.py
 [PASS] test_antigravity_sdk_reviewer_blocks_unsafe_diff
 [PASS] test_antigravity_sdk_reviewer_approves_clean_diff
 [PASS] test_cloudbuild_yaml_is_valid_and_runs_tests_before_deploy
+[PASS] test_build_managed_agent_payload
 
-All 5/5 Lab 10 tests passed!
+All 6/6 Lab 10 tests passed!
 ```
 
 ---

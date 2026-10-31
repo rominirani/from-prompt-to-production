@@ -401,6 +401,54 @@ async def run_automated_diff_review(diff_text: str) -> AutomatedReviewResult:
     )
 
 
+def build_managed_agent_payload(
+    *,
+    display_name: str,
+    project_id: str,
+    skill_ids: list[str],
+    model_id: ModelTier = "gemini-3-flash-preview",
+    location: str = "global",
+) -> dict[str, Any]:
+    """Build a Gemini Enterprise Managed Agents API resource payload with mounted skills.
+
+    Target endpoint:
+        POST https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project_id}/locations/{location}/agents
+    """
+    tools: list[dict[str, Any]] = [
+        {"type": "code_execution"},
+        {"type": "web_search"},
+    ]
+    for skill_id in skill_ids:
+        clean_id = skill_id.strip().lower()
+        if clean_id:
+            tools.append(
+                {
+                    "mount": {
+                        "path": f"/.agent/skills/{clean_id}",
+                        "source": {
+                            "skillSource": {
+                                "skillReference": (
+                                    f"projects/{project_id}/locations/{location}/skills/{clean_id}"
+                                )
+                            }
+                        },
+                    }
+                }
+            )
+
+    return {
+        "displayName": display_name.strip(),
+        "definition": {
+            "model": model_id,
+            "systemInstruction": (
+                "You are a stateful enterprise review agent. Load mounted skills from "
+                "/.agent/skills/ when relevant."
+            ),
+            "tools": tools,
+        },
+    }
+
+
 if __name__ == "__main__":
     sample_report = estimate_workload_cost(
         model_id="gemini-3-flash-preview",

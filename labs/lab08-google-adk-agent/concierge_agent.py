@@ -298,42 +298,63 @@ def reserve_workshop_seat(
     workshop_id: str,
     attendee_name: str,
     attendee_email: str,
+    seats_requested: int = 1,
+    manager_approved: bool = False,
 ) -> dict[str, Any]:
-    """Reserves a single seat in a workshop for an attendee if capacity allows.
+    """Reserves seats in a workshop for an attendee if capacity and approval rules allow.
 
     Use this tool only when an attendee explicitly asks to book or reserve a seat
-    and provides their name and email address.
+    and provides their name and email address. Requests for 5 or more seats require
+    human manager approval (`manager_approved=True`).
 
     Args:
         workshop_id: The workshop identifier to book (for example, 'ws-101').
         attendee_name: Full name of the attendee reserving the seat.
         attendee_email: Email address of the attendee for confirmation.
+        seats_requested: Number of seats to reserve (default 1). Group requests of 5+
+                         return 'pending_human_approval' unless manager_approved=True.
+        manager_approved: True only after a human organizer approves a group booking.
 
     Returns:
-        A dictionary describing whether the reservation succeeded or failed.
+        A dictionary describing whether the reservation succeeded, is pending approval, or failed.
     """
     conn = get_db_connection()
     normalized_id = workshop_id.strip().lower()
     clean_name = attendee_name.strip()
     clean_email = attendee_email.strip().lower()
 
-    if not clean_name or "@" not in clean_email:
+    if not clean_name or "@" not in clean_email or seats_requested < 1:
         return {
             "status": "invalid_input",
-            "message": "A valid attendee name and email address are required.",
+            "message": "A valid attendee name, email address, and seats_requested >= 1 are required.",
+        }
+
+    # Human-in-the-Loop Approval Gate (ambient-expense-agent / long-horizon-harness pattern):
+    # High-impact actions (group bookings of 5+ seats) pause and wait for human sign-off.
+    if seats_requested >= 5 and not manager_approved:
+        return {
+            "status": "pending_human_approval",
+            "requires_approval": True,
+            "workshop_id": normalized_id,
+            "attendee_email": clean_email,
+            "seats_requested": seats_requested,
+            "message": (
+                f"Group booking of {seats_requested} seats in {normalized_id} requires "
+                f"human organizer approval before seats are deducted."
+            ),
         }
 
     availability = check_seat_availability(normalized_id)
     if availability["status"] != "success":
         return availability
 
-    if availability["is_full"]:
+    if availability["is_full"] or availability["seats_remaining"] < seats_requested:
         return {
             "status": "workshop_full",
             "workshop_id": normalized_id,
             "title": availability["title"],
-            "seats_remaining": 0,
-            "message": f"Sorry, {availability['title']} ({normalized_id}) is completely full.",
+            "seats_remaining": availability["seats_remaining"],
+            "message": f"Sorry, {availability['title']} ({normalized_id}) does not have enough open seats.",
         }
 
     existing = conn.execute(
@@ -363,10 +384,10 @@ def reserve_workshop_seat(
         conn.execute(
             """
             UPDATE workshops
-            SET booked_seats = booked_seats + 1
+            SET booked_seats = booked_seats + ?
             WHERE workshop_id = ?
             """,
-            (normalized_id,),
+            (seats_requested, normalized_id),
         )
 
     updated = check_seat_availability(normalized_id)
@@ -377,12 +398,35 @@ def reserve_workshop_seat(
         "room": updated["room"],
         "attendee_name": clean_name,
         "attendee_email": clean_email,
+        "seats_booked": seats_requested,
         "seats_remaining": updated["seats_remaining"],
         "message": (
             f"Seat confirmed for {clean_name} in {updated['title']} "
             f"({normalized_id}, {updated['room']})."
         ),
     }
+
+
+def screen_user_message_safety(prompt: str) -> dict[str, Any]:
+    """Runner-wide safety pre-check (`safety-plugins` recipe pattern).
+
+    Screens incoming user prompts for obvious prompt-injection or instruction-override
+    attempts before the message is routed to any sub-agent or tool.
+    """
+    lowered = prompt.lower()
+    blocked_phrases = (
+        "ignore all previous instructions",
+        "drop table workshops",
+        "bypass approval",
+        "system prompt:",
+    )
+    for phrase in blocked_phrases:
+        if phrase in lowered:
+            return {
+                "allowed": False,
+                "reason": f"Blocked by runner safety screen (matched pattern: '{phrase}').",
+            }
+    return {"allowed": True, "reason": "ok"}
 
 
 # ---------------------------------------------------------------------------

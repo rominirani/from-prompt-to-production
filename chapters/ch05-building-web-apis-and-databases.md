@@ -193,6 +193,21 @@ Let's open the code in **`labs/lab05-fastapi-database/`** and walk through how o
 - [app.py](../labs/lab05-fastapi-database/app.py)
 - [test_app.py](../labs/lab05-fastapi-database/test_app.py)
 
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Now that we configured `GEMINI.md` and `.agents/skills/` in Chapter 4, you don't have to type out every route and SQL table by hand. Here is the exact workflow for building this lab in **Google Antigravity** with your rules and skills active:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md): Enforces Python 3.12 type hints, Pydantic v2 (`ConfigDict`), `?` parameterized SQL, and security response headers.
+   - [`.agents/skills/new-endpoint/SKILL.md`](../.agents/skills/new-endpoint/SKILL.md): Automatically triggers whenever you ask Antigravity to build a FastAPI route, reminding the agent to add Pydantic request/response schemas, `?` SQL bindings, explicit HTTP status codes (`201`, `404`, `409`, `422`), and both happy-path and failure-path tests.
+2. **Step 1 Prompt (`/grill-me` to lock down edge cases)**:
+   > `/grill-me I want to build a FastAPI + SQLite Workshop & Event Registration API in labs/lab05-fastapi-database/app.py. Ask me 3 quick questions about capacity limits, duplicate emails, and search filtering before we plan.`
+3. **Step 2 Prompt (`/plan` to generate and test the app)**:
+   > `/plan Build labs/lab05-fastapi-database/app.py and test_app.py following our new-endpoint skill. Include POST /workshops, GET /workshops (with parameterized ?search= filter), and POST /workshops/{id}/register with atomic capacity checks and lowercase email normalization. Run pytest when done.`
+4. **What to Check in `git diff`**:
+   - Confirm every `conn.execute(...)` call uses `?` placeholders and passes values as a tuple `(...,)`—zero f-strings inside SQL!
+   - Confirm `registered_count < capacity` is checked inside the transaction so a workshop can never be overbooked.
+
 ### Part A: Pydantic Request & Response Models
 
 Open [app.py](../labs/lab05-fastapi-database/app.py#L24-L97) and look at `WorkshopCreate` and `RegistrationCreate`:

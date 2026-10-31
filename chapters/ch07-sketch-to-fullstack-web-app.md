@@ -183,6 +183,21 @@ You have two complementary tools:
 
 Let's walk through the code in `labs/lab07-web-ui-and-browser/` and see how all of these pieces come together in roughly 370 lines of clean Python.
 
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+Here is how you can build and visually verify this entire full-stack app inside **Google Antigravity** using multimodal prompts, skills, and the `/browser` agent:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + [`.agents/skills/new-endpoint/SKILL.md`](../.agents/skills/new-endpoint/SKILL.md): Enforces quoted HTML attributes, `html.escape()` on all user values, strict `Content-Security-Policy: default-src 'self'`, and `127.0.0.1` local binding.
+   - **`generative_ui` & `/browser`**: Lets you preview UI cards in chat and test the live server in a real Chrome tab.
+2. **Step 1 Prompt (Multimodal Sketch -> FastAPI + HTMX App)**:
+   > `/plan Build labs/lab07-web-ui-and-browser/pantry_app.py and test_pantry_app.py for our Smart Kitchen & Pantry Tracker. Serve external CSS from /styles.css, escape all dynamic HTML values with html.escape(), quote every HTML attribute, and use gemini-3-flash-preview with response_schema=RecipeSuggestion for the AI Chef endpoint.`
+3. **Step 2 Prompt (Live Browser Verification)**:
+   > `/browser Start pantry_app.py on 127.0.0.1:8007, add 'Smoked Paprika' with quantity 0.5 and threshold 1.0, and verify that the LOW STOCK badge renders and no Content-Security-Policy errors appear in the console.`
+4. **What to Check in `git diff`**:
+   - Check that every variable interpolated into an HTML string is wrapped in `html.escape(str(...), quote=True)` and surrounded by double quotes `value="..."`.
+   - Check that `uvicorn.run` binds to `host="127.0.0.1"`.
+
 ### Step 1: Validating Form Inputs and Gemini Outputs with Pydantic v2
 
 Open [`pantry_app.py`](../labs/lab07-web-ui-and-browser/pantry_app.py#L36-L119). First, we define three `Pydantic` v2 models:

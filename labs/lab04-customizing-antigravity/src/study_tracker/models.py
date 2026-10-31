@@ -64,3 +64,13 @@ class StudyProgressReport(BaseModel):
     total_minutes: int = Field(..., ge=0)
     top_topic: str | None = None
     topic_summaries: list[TopicSummary] = Field(default_factory=list)
+
+
+class SkillCatalogEntry(BaseModel):
+    """Parsed YAML frontmatter metadata from a `SKILL.md` file (progressive disclosure)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+    skill_path: str = Field(..., min_length=1)

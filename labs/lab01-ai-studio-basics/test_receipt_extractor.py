@@ -18,6 +18,7 @@ from receipt_extractor import (
     SAMPLE_RECEIPT_NOTE,
     ReceiptExtraction,
     ReceiptLineItem,
+    build_grounded_search_config,
     build_multimodal_receipt_part,
     extract_receipt_from_text,
     verify_receipt_math,
@@ -104,6 +105,17 @@ def test_json_roundtrip_matches_response_schema() -> None:
     assert restored == receipt
 
 
+def test_build_grounded_search_config() -> None:
+    """build_grounded_search_config attaches google_search and url_context tools cleanly."""
+    config = build_grounded_search_config(include_url_context=True)
+    assert config.tools is not None
+    assert len(config.tools) == 2
+
+    search_only = build_grounded_search_config(include_url_context=False)
+    assert search_only.tools is not None
+    assert len(search_only.tools) == 1
+
+
 if __name__ == "__main__":
     test_functions = [
         test_extract_sample_receipt_offline,
@@ -112,6 +124,7 @@ if __name__ == "__main__":
         test_pydantic_rejects_invalid_quantity_or_negative_price,
         test_multimodal_part_builder_validates_mime_and_file,
         test_json_roundtrip_matches_response_schema,
+        test_build_grounded_search_config,
     ]
     for fn in test_functions:
         fn()

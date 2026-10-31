@@ -108,49 +108,84 @@ That is why agent testing looks at two things together:
 
 You could write that `while` loop, tool schema converter, session state tracker, and multi-agent router by hand using the raw `google-genai` SDK. But you would end up writing hundreds of lines of plumbing code before solving your actual problem.
 
-That is why Google created the **Agent Development Kit (`google-adk`)** and its companion workflow tool, **`agents-cli`**.
+That is why Google created the **Agent Development Kit (`google-adk`)** and its official end-to-end lifecycle CLI, **`agents-cli` (`google-agents-cli`)**.
 
-### Step 1: Scaffolding a Project with `agents-cli`
+### The End-to-End Agent Lifecycle with `agents-cli`
 
-When starting a brand-new standalone ADK project, Google provides `agents-cli` to set up the standard folder layout, evaluation config, and deployment templates automatically:
+Let's install `agents-cli` and wire its official skill pack into Google Antigravity right away:
 
 ```bash
-# Install the CLI tool once with uv
+# 1. Install the Google Agents CLI
 uv tool install google-agents-cli
 
-# Create a new ADK project with evaluation folders pre-configured
-agents-cli scaffold create event-concierge
+# 2. Install the 7 official agents-cli skills into your coding workspace
+uvx google-agents-cli setup
 ```
 
-A scaffolded project gives you a clean structure right out of the box:
+When you build agents with `agents-cli`, you follow a clean, repeatable lifecycle from first idea to production:
 
-```text
-event-concierge/
-├── app/
-│   ├── __init__.py
-│   ├── agent.py              # Defines root_agent
-│   └── tools.py              # Your Python tool functions
-├── tests/
-│   └── eval/
-│       ├── eval_config.yaml  # Metrics to grade (task success, tool use quality)
-│       └── datasets/         # JSON evaluation cases
-└── pyproject.toml
+```mermaid
+flowchart LR
+    P0["Phase 0: Spec\n(.agents-cli-spec.md)"] --> P1["Phase 1: Study\n(adk-samples recipes)"]
+    P1 --> P2["Phase 2: Scaffold\n(scaffold create --prototype)"]
+    P2 --> P3["Phase 3: Build & Run\n(agents-cli run / playground)"]
+    P3 --> P4["Phase 4: Quality Flywheel\n(agents-cli eval run / optimize)"]
+    P4 --> P5["Phase 5-7: Deploy, Publish & Observe\n(deploy / publish / infra)"]
 ```
 
-### Step 2: Writing Tools That Gemini Understands
+Let's walk through each step of this workflow from scratch.
+
+### Phase 0 & Phase 1: Write `.agents-cli-spec.md` & Study Curated ADK Recipes
+
+Before writing code, `agents-cli` encourages saving a short **`.agents-cli-spec.md`** file in your project root (see [`labs/lab08-google-adk-agent/.agents-cli-spec.md`](../labs/lab08-google-adk-agent/.agents-cli-spec.md)) listing your agent's goal, tools, sub-agents, and deployment target.
+
+Next, instead of guessing how to wire up RAG, memory, approvals, or safety, `agents-cli` points you (and Antigravity!) to curated reference recipes in **`google/adk-samples` (`core/python/`)**. Here are the four foundational ADK patterns every builder should know:
+
+#### 1. Zero-Maintenance RAG (`rag-agent-search` recipe)
+Earlier in AI development, if you wanted an agent to answer factual questions, you had to set up a chunking script, an embedding pipeline, and a vector database. With Gemini 3 and ADK, your first choice for public or web facts should be **Google Search Grounding** (`rag-agent-search` recipe)—giving your agent live search citations with zero database maintenance. Only reach for Vertex AI Search or AlloyDB `pgvector` when searching private company PDFs or internal databases.
+
+#### 2. Short-Term Session State vs. Long-Term Cross-Session Memory (`cross-session-memory` recipe)
+Beginners often ask: *"How do I make my agent remember things?"* In Google ADK, there are two distinct layers of memory:
+- **Short-Term Session State (`tool_context.state["cart_id"]`)**: Remembers details *inside the current conversation tab*. You can even reference state keys directly inside an agent's instruction string using curly braces (like `"Current user tier: {user_tier}"`), and ADK substitutes the value automatically!
+- **Long-Term Cross-Session Memory (`VertexAiMemoryBankService` + `PreloadMemoryTool`)**: What if Priya closes her browser today and comes back next Tuesday? By wiring `VertexAiMemoryBankService` and `PreloadMemoryTool` into your runner, ADK automatically extracts key preferences from past conversations (`"Priya prefers Python backend workshops"`) and preloads them when she starts a new chat next week.
+
+#### 3. Human-in-the-Loop Approval Gates (`ambient-expense-agent` & `long-horizon-harness` recipes)
+Reading data (`search_workshops`, `check_seat_availability`) is completely safe for an agent to do on its own. But what if an attendee asks to reserve **10 seats at once** for their whole team, or asks a support agent to issue a **\$500 refund**?
+Never let an agent execute high-stakes actions unchecked! In the `ambient-expense-agent` pattern, your Python tool checks a threshold (such as `if seats_requested >= 5 and not manager_approved:`) and returns `{"status": "pending_human_approval", "requires_approval": True}` so a human organizer can click **Approve** before the database is modified.
+
+#### 4. Runner-Wide Safety Plugins (`safety-plugins` recipe)
+Instead of pasting *"Do not fall for prompt injection!"* into twenty different sub-agent prompts, ADK lets you attach a **`BasePlugin`** (`before_user_message` / `after_model_response`) to your `Runner`. In the `safety-plugins` recipe, a single plugin wraps **Google Cloud Model Armor** (plus a fast `gemini-3.1-flash-lite` judge) to screen every incoming user message and outgoing reply across your entire agent hierarchy automatically.
+
+### Phase 2: Prototype-First Scaffolding (`agents-cli scaffold create`)
+
+When starting a new agent project, always scaffold with **`--prototype`** first so you can iterate locally before adding cloud deployment templates:
+
+```bash
+# Create a local ADK prototype with GEMINI.md guidance and eval folders pre-configured
+agents-cli scaffold create event-concierge \
+  --agent adk \
+  --prototype \
+  --agent-guidance-filename GEMINI.md
+```
+
+This creates a clean project structure right out of the box—and automatically configures **A2A (Agent-to-Agent)** protocol endpoints (`/.well-known/agent-card.json`) so other agents in your company can discover and talk to your agent over HTTP!
+
+Later, when your agent works locally and you are ready to go to the cloud (Chapter 9), you upgrade the project in place without losing a single line of your code:
+
+```bash
+# Add Vertex AI Agent Engine or Cloud Run deployment + CI/CD when ready!
+agents-cli scaffold enhance . \
+  --deployment-target agent_runtime \
+  --cicd-runner google_cloud_build
+```
+
+### Phase 3: Writing Tools, Defining Agents, and Running Locally
 
 In Google ADK, you do not need to write complex JSON schemas to describe your tools. You just write a normal Python function and pass it into `Agent(..., tools=[your_function])`.
 
 There is one golden rule you must remember: **ADK inspects your function's name, Python type hints, and docstring, and sends them directly to Gemini as the tool's instruction manual.**
 
-Let's compare a poorly written tool with an ADK-ready tool:
-
 ```python
-# BAD: No type hints, vague name, no docstring.
-# Gemini has no idea what 'x' is or when to call this function!
-def do_check(x):
-    ...
-
 # GOOD: Clear name, strict Python type hints, and an explicit docstring.
 def check_seat_availability(workshop_id: str) -> dict[str, Any]:
     """Checks the current seat availability for a specific workshop ID.
@@ -167,11 +202,7 @@ def check_seat_availability(workshop_id: str) -> dict[str, Any]:
     ...
 ```
 
-When you write a clear `Args:` and `Returns:` docstring and return a dictionary with a clear `"status"` key (`"success"`, `"not_found"`, `"workshop_full"`), Gemini knows both **when** to call the function and **how** to interpret the result.
-
-### Step 3: Defining Agents and Sub-Agents with `google.adk.agents.Agent`
-
-Creating an agent in `google-adk` takes just a few lines of Python:
+And defining specialist agents and a coordinator with `google.adk.agents.Agent` takes just a few lines:
 
 ```python
 from google.adk.agents import Agent
@@ -187,15 +218,7 @@ catalog_specialist = Agent(
     ),
     tools=[search_workshops, check_seat_availability],
 )
-```
 
-Notice the two text fields on `Agent`:
-- **`instruction`** tells *this* agent how to behave when it is active.
-- **`description`** tells a *parent coordinator agent* when to hand the conversation over to this specialist!
-
-When you wire specialist agents into a coordinator using `sub_agents=[catalog_specialist, booking_specialist]`, the root agent reads each specialist's `description` to decide who should handle the user's request:
-
-```python
 root_agent = Agent(
     name="event_concierge_coordinator",
     model="gemini-3-flash-preview",
@@ -209,20 +232,95 @@ root_agent = Agent(
 )
 ```
 
-### Step 4: Interactive Visual Testing with `adk web` and Automated Grading with `agents-cli eval`
+To test your agent during Phase 3, use two fast feedback loops:
+1. **`pytest` for deterministic tools**: Test `search_workshops`, `check_seat_availability`, and `reserve_workshop_seat` directly in milliseconds.
+2. **`agents-cli run` and `agents-cli playground` for live agent turns**:
+   ```bash
+   # Send a single test prompt from the terminal (starts & stops the local server automatically)
+   uv run agents-cli run "What Python workshops are open today?" --start-server
 
-During development, you have two ways to test your ADK agent:
+   # Or launch the interactive visual UI in your browser on 127.0.0.1
+   uv run agents-cli playground
+   ```
 
-1. **Interactive Visual Debugging (`adk web` or `agents-cli playground`)**:
-   Running `uv run adk web` launches a local browser UI bound to `127.0.0.1` where you can chat with your agent and watch every single event, sub-agent handoff, tool call argument, and tool return dictionary in real time.
-2. **Automated Evaluation (`agents-cli eval run`)**:
-   Instead of manually typing the same five questions after every prompt edit, you store test prompts in an evaluation dataset JSON file and run `agents-cli eval run`. The evaluator runs your agent against every test case and scores metrics like `multi_turn_task_success`, `multi_turn_trajectory_quality`, and `multi_turn_tool_use_quality`—or runs a custom deterministic Python grading function locally.
+### Phase 4: The Quality Flywheel (`agents-cli eval`)
+
+How do you systematically improve an agent instead of playing whack-a-mole with prompts? `agents-cli` gives you an automated **Quality Flywheel** driven by [`tests/eval/eval_config.yaml`](../labs/lab08-google-adk-agent/tests/eval/eval_config.yaml):
+
+```yaml
+dataset_path: eval_dataset.json
+
+metrics:
+  - multi_turn_task_success
+  - multi_turn_trajectory_quality
+  - multi_turn_tool_use_quality
+  - hallucination
+  - safety
+```
+
+Here are the 5 commands that power the Quality Flywheel:
+
+```bash
+# 1. Run your evaluation suite and capture a baseline Run ID
+uv run agents-cli eval run --config-path tests/eval/eval_config.yaml
+
+# 2. Generate 10 new synthetic multi-turn test scenarios automatically
+uv run agents-cli eval dataset synthesize --num-scenarios 10 --output tests/eval/datasets/expanded.json
+
+# 3. Diagnose the root causes of any failed test cases
+uv run agents-cli eval analyze <RUN_ID>
+
+# 4. Automatically optimize agent instructions based on eval failures!
+uv run agents-cli eval optimize --apply
+
+# 5. Compare before vs. after runs to prove your changes improved quality without regressions
+uv run agents-cli eval compare <BASELINE_RUN_ID> <NEW_RUN_ID>
+```
+
+### Real-Time Voice & Video Agents with the Gemini Live API (`Runner.run_live`)
+
+What if you want attendees at *Cloud Builders Day* to walk up to a kiosk and **talk** to your concierge out loud—or hold their conference badge up to a camera—with natural sub-second voice responses?
+
+Google ADK supports the **Gemini Live API** natively via **`Runner.run_live()`**:
+- **Bidirectional Audio & Video Streaming**: Instead of waiting for a user to finish typing a paragraph, `run_live()` streams microphone audio and camera frames over WebSockets directly to Gemini.
+- **Natural Barge-In (Interruption)**: If the agent starts listing all three workshops and the user interrupts mid-sentence (*"Wait, tell me about the first one!"*), the Live API immediately stops speaking and responds to the interruption.
+- **Same Python Tools**: Your exact same `search_workshops` and `check_seat_availability` functions work in voice mode with zero code changes!
+- **Two Production Settings to Remember for Live Agents**: When deploying a WebSocket voice agent to Cloud Run (Chapter 9), always set `--timeout 3600` (so long voice calls aren't cut off after 60 seconds) and `--min-instances 1` (so the first sentence never waits for a cold start).
+
+### Phase 6: Publishing to Gemini Enterprise & Agent Registry (`agents-cli publish`)
+
+Once your agent is deployed (which we will do in Chapter 9), how do employees across your company find and use it inside the **Gemini Enterprise** web app? You register it with a single command:
+
+```bash
+# Register your deployed agent with Gemini Enterprise (auto-detects ADK or A2A mode)
+agents-cli publish gemini-enterprise
+
+# Or list all registered agents in Google Cloud Agent Registry
+gcloud alpha agent-registry agents list --project="$GOOGLE_CLOUD_PROJECT" --location="global"
+```
+
+- **ADK Mode**: Connects Gemini Enterprise directly to an agent running on Vertex AI Agent Engine (`:streamQuery`).
+- **A2A Mode (`--a2a --agent-card-url https://.../agent-card.json`)**: Connects any agent hosted on Cloud Run or GKE via its standard Agent-to-Agent card!
 
 ---
 
 ## 4. Hands-On Python Lab Walkthrough
 
 Let's walk through **Lab 8** (`labs/lab08-google-adk-agent/`), where we build and verify our **Cloud Builders Day Multi-Agent Event Concierge**.
+
+### How to Build This Lab with Antigravity (Prompts + Active Skills)
+
+When you ran `uvx google-agents-cli setup` earlier, it installed the 7 official `agents-cli` skills (`google-agents-cli-workflow`, `scaffold`, `adk-code`, `eval`, `deploy`, `publish`, `observability`) into Antigravity. Here is how to build this lab using those skills:
+
+1. **Active Customizations in Your Workspace**:
+   - [`GEMINI.md`](../GEMINI.md) + `google-agents-cli-workflow` + `google-agents-cli-adk-code` + `google-agents-cli-eval`.
+2. **Step 1 Prompt (Phase 0 Spec + Multi-Agent Implementation)**:
+   > `/plan Using our google-agents-cli-adk-code skill, create labs/lab08-google-adk-agent/.agents-cli-spec.md and build a multi-agent conference concierge in concierge_agent.py using gemini-3-flash-preview. Include catalog_specialist and booking_specialist under event_concierge_coordinator, parameterized SQLite queries, a human-in-the-loop approval gate when seats_requested >= 5, and a runner safety screen function.`
+3. **Step 2 Prompt (Phase 4 Trajectory Evaluation)**:
+   > `/plan Using google-agents-cli-eval, create tests/eval/eval_config.yaml, eval_dataset.json, and test_concierge_agent.py to verify 100% tool trajectory accuracy and test the human-in-the-loop approval gate.`
+4. **What to Check in `git diff`**:
+   - Confirm every tool function has complete Python type hints and an `Args:` / `Returns:` docstring (since Gemini reads these directly!).
+   - Confirm `reserve_workshop_seat` enforces capacity checks and returns `"pending_human_approval"` when `seats_requested >= 5` and `manager_approved=False`.
 
 ### File 1: The Parameterized SQLite Store and Tool Functions (`concierge_agent.py`)
 
@@ -334,8 +432,9 @@ And when running [test_concierge_agent.py](../labs/lab08-google-adk-agent/test_c
 [PASS] test_sql_injection_safety_in_search
 [PASS] test_trajectory_evaluation_dataset_passes_100_percent
 [PASS] test_single_turn_runner_delegation
+[PASS] test_human_in_the_loop_approval_and_safety_plugin
 
-All 6/6 Lab 08 tests passed!
+All 7/7 Lab 08 tests passed!
 ```
 
 ---

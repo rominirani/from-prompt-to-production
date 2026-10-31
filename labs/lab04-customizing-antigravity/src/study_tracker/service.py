@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from study_tracker.models import StudyProgressReport, StudySession, TopicSummary
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from study_tracker.models import (
+    SkillCatalogEntry,
+    StudyProgressReport,
+    StudySession,
+    TopicSummary,
+)
 
 
 class StudyTrackerService:
@@ -104,3 +114,47 @@ class StudyTrackerService:
                 f"({summary.session_count} sessions, avg difficulty {summary.average_difficulty}/5.0)"
             )
         return "\n".join(lines)
+
+
+def parse_skill_frontmatter(skill_md_path: str | Path) -> SkillCatalogEntry:
+    """Read only the YAML frontmatter (`name` and `description`) from a `SKILL.md` file."""
+    resolved = Path(skill_md_path).resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Skill file not found: {resolved}")
+
+    raw_text = resolved.read_text(encoding="utf-8")
+    if not raw_text.startswith("---"):
+        raise ValueError(f"Skill file {resolved.name} is missing YAML frontmatter '---'.")
+
+    parts = raw_text.split("---", 2)
+    if len(parts) < 3:
+        raise ValueError(f"Skill file {resolved.name} has unclosed YAML frontmatter.")
+
+    parsed = yaml.safe_load(parts[1]) or {}
+    return SkillCatalogEntry(
+        name=str(parsed.get("name", "")).strip(),
+        description=" ".join(str(parsed.get("description", "")).split()),
+        skill_path=str(resolved),
+    )
+
+
+def build_runtime_skill_mount(
+    skill_name: str,
+    *,
+    project_id: str,
+    location: str = "global",
+) -> dict[str, Any]:
+    """Build a Managed Agents API / runtime skill mount block pointing to Google Cloud Skill Registry."""
+    cleaned_name = skill_name.strip().lower()
+    if not cleaned_name:
+        raise ValueError("skill_name must not be empty.")
+    return {
+        "mount": {
+            "path": f"/.agent/skills/{cleaned_name}",
+            "source": {
+                "skillSource": {
+                    "skillReference": f"projects/{project_id}/locations/{location}/skills/{cleaned_name}"
+                }
+            },
+        }
+    }
