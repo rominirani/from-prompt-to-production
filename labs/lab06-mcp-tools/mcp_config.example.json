@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "workshop-event-inspector": {
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "labs/lab06-mcp-tools/event_mcp_server.py"
+      ],
+      "env": {
+        "WORKSHOP_DB_PATH": "labs/lab06-mcp-tools/workshops.db"
+      }
+    },
+    "google-developer-knowledge-remote": {
+      "url": "https://developerknowledge.googleapis.com/mcp"
+    }
+  }
+}

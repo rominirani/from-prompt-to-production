@@ -1,0 +1,16 @@
+[project]
+name = "lab09-cloud-run-deploy"
+version = "0.1.0"
+description = "Lab 09: Production-hardened FastAPI service ready for Google Cloud Run"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.7.0",
+    "uvicorn>=0.30.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]

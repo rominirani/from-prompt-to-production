@@ -1,0 +1,16 @@
+{
+  "verify-study-tracker-after-edit": {
+    "PostToolUse": [
+      {
+        "matcher": "edit_file|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python tests/test_study_tracker.py >/dev/null 2>&1 && echo '{}'",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "discover_python_workshops",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What Python workshops are happening at the conference today?"
+          }
+        ]
+      },
+      "expected_delegate": "catalog_specialist",
+      "expected_tool_trajectory": [
+        "search_workshops"
+      ],
+      "expected_response_keywords": [
+        "ws-101",
+        "Build Fast APIs with Gemini & Python"
+      ]
+    },
+    {
+      "eval_case_id": "check_open_seats_ws101",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "How many open seats are left in workshop ws-101?"
+          }
+        ]
+      },
+      "expected_delegate": "catalog_specialist",
+      "expected_tool_trajectory": [
+        "check_seat_availability"
+      ],
+      "expected_response_keywords": [
+        "ws-101",
+        "2"
+      ]
+    },
+    {
+      "eval_case_id": "reserve_seat_success",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Please reserve a seat in ws-101 for Priya Nair (priya@example.com)."
+          }
+        ]
+      },
+      "expected_delegate": "booking_specialist",
+      "expected_tool_trajectory": [
+        "check_seat_availability",
+        "reserve_workshop_seat"
+      ],
+      "expected_response_keywords": [
+        "confirmed",
+        "ws-101",
+        "Priya Nair"
+      ]
+    },
+    {
+      "eval_case_id": "reserve_seat_full_workshop",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Please book a seat in ws-102 for Alex Rivera (alex@example.com)."
+          }
+        ]
+      },
+      "expected_delegate": "booking_specialist",
+      "expected_tool_trajectory": [
+        "check_seat_availability"
+      ],
+      "expected_response_keywords": [
+        "ws-102",
+        "full"
+      ]
+    }
+  ]
+}

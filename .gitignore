@@ -1,0 +1,18 @@
+# Python virtual environments & caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Environment variables & local secrets (NEVER commit!)
+.env
+*.secret
+jwt_secret.txt
+
+# Local SQLite databases
+*.db
+*.sqlite3
+
+# Reference PDFs
+*.pdf

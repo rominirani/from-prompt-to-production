@@ -1,0 +1,13 @@
+[project]
+name = "lab03-data-and-tests"
+version = "0.1.0"
+description = "Lab 03: Penny-Exact Trip Expense Splitter with Pydantic v2 and pytest"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]

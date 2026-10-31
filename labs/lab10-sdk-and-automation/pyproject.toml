@@ -1,0 +1,15 @@
+[project]
+name = "lab10-sdk-and-automation"
+version = "0.1.0"
+description = "Lab 10: CI/CD Automation, Gemini Cost Routing, and the google-antigravity Python SDK"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=1.0.0",
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]

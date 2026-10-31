@@ -1,0 +1,10 @@
+{
+  "hooks": [
+    {
+      "event": "afterFileEdit",
+      "description": "Compile-check edited Python files immediately so syntax errors are caught right away.",
+      "filePattern": "**/*.py",
+      "command": "uv run python -m py_compile ${file}"
+    }
+  ]
+}

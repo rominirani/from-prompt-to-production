@@ -1,0 +1,48 @@
+# Google Cloud Build CI/CD Pipeline (`cloudbuild.yaml`)
+# Automatically runs syntax checks, unit tests, security audits, and deploys to Cloud Run.
+steps:
+  # Step 1: Run automated Python test suites across labs using uv
+  - name: "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
+    id: "run-automated-tests"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        uv run python labs/lab08-google-adk-agent/test_concierge_agent.py
+        uv run python labs/lab09-cloud-run-deploy/test_production_app.py
+        uv run python labs/lab10-sdk-and-automation/test_automation_hub.py
+
+  # Step 2: Build the production container image and push to Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-container-image"
+    args:
+      - "build"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_NAME}/cloud-builders-api:${SHORT_SHA}"
+      - "labs/lab09-cloud-run-deploy"
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push-container-image"
+    args:
+      - "push"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_NAME}/cloud-builders-api:${SHORT_SHA}"
+
+  # Step 3: Deploy the verified container image to Google Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "deploy-to-cloud-run"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "cloud-builders-api"
+      - "--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_NAME}/cloud-builders-api:${SHORT_SHA}"
+      - "--region=${_REGION}"
+      - "--set-secrets=SERVICE_API_KEY=service-api-key:latest"
+      - "--set-env-vars=APP_ENV=production"
+
+substitutions:
+  _REGION: "us-central1"
+  _REPO_NAME: "cloud-builders-containers"
+
+options:
+  logging: CLOUD_LOGGING_ONLY

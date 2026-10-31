@@ -1,0 +1,10 @@
+[project]
+name = "lab01-ai-studio-basics"
+version = "0.1.0"
+description = "Chapter 1 Lab: Structured Receipt Extractor with Google AI Studio & google-genai"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=1.0.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.0",
+]
