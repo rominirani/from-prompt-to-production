@@ -16,3 +16,7 @@ jwt_secret.txt
 
 # Reference PDFs
 *.pdf
+
+# Local draft blog post & companion folder (keep local, do not publish to GitHub)
+BLOG_VIBE_CODING_MEET_REALITY.md
+blog-vibe-coding-meet-reality/

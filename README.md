@@ -15,9 +15,7 @@ That is what this 10-chapter hands-on book is for. We take you from your very fi
 
 1. **Read the Complete Single-File Edition**:
    👉 **[Open `BOOK.md` (All 10 Chapters + Appendix on One Page)](./BOOK.md)** — Ideal if you want to read continuously from start to finish or use `Cmd+F` / `Ctrl+F` across the entire manuscript.
-2. **Read the Featured Deep-Dive Blog Post & Companion Lab (*"Vibe Coding, Meet Reality"*)**:
-   👉 **[Open `BLOG_VIBE_CODING_MEET_REALITY.md`](./BLOG_VIBE_CODING_MEET_REALITY.md)** + **[`blog-vibe-coding-meet-reality/`](./blog-vibe-coding-meet-reality/)** — A complete, step-by-step guide inspired by Rod Johnson’s *[Vibe Coding, Meet Reality](https://medium.com/@springrod/vibe-coding-meet-reality-0fb1e4e04053)* showing how to build a **Governed Semantic & Operational Context Layer** using **Cloud SQL for PostgreSQL**, **Google Cloud Knowledge Catalog**, and **MCP Toolbox for Databases (`tools.yaml`)**.
-3. **Browse Chapter-by-Chapter + Hands-On Python Labs**:
+2. **Browse Chapter-by-Chapter + Hands-On Python Labs**:
    Use the interactive chapter table below to jump into any individual chapter in [`chapters/`](./chapters/) alongside its runnable Python lab in [`labs/`](./labs/).
 
 ---
