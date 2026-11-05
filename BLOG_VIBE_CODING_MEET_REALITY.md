@@ -143,11 +143,82 @@ Look closely at those numbers:
 
 ## Step 2: Teaching the AI What Our Data Means with Google Cloud Knowledge Catalog
 
-How do we make sure that no developer—and no AI agent—ever has to guess how **Net Store Revenue** is calculated or which columns in `customers` are off-limits?
+Before we write any code for Step 2, let's pause and talk about **Google Cloud Knowledge Catalog** (formerly known as *Dataplex Universal Catalog*).
 
-We register our business semantics in **Google Cloud Knowledge Catalog** (formerly Dataplex Universal Catalog) using the **`datacloud_knowledge_catalog_remote`** MCP server (or `gcloud dataplex`).
+If you have ever opened the Google Cloud documentation for Knowledge Catalog or Dataplex, you have probably bumped into a wall of unfamiliar terms: **Entry Groups**, **Context Sets**, **Entries**, **Entry Types**, **Aspects**, **Entry Links**, **Business Glossaries**, and **`lookup_context`**.
 
-Open [`blog-vibe-coding-meet-reality/knowledge_catalog_setup.py`](./blog-vibe-coding-meet-reality/knowledge_catalog_setup.py). We perform three steps in Knowledge Catalog:
+Why does a data catalog have so many moving parts? Let's strip away the jargon using a super simple everyday example **before** we connect it to our coffee franchise.
+
+---
+
+### Google Cloud Knowledge Catalog 101: A Plain-English Primer
+
+Imagine you run a small **Online Bookstore**, and your PostgreSQL database has a table called `book_orders` with two columns:
+- `amt_c INTEGER` (sample value: `2499`)
+- `st_code SMALLINT` (sample value: `3`)
+
+Your database engine (PostgreSQL) only knows **technical metadata**: it knows `amt_c` is a whole number and `st_code` is a small integer.
+
+What PostgreSQL **does not know** is the **business context**:
+1. `amt_c` is stored in **cents, not dollars** (`2499` means **\$24.99**, not **\$2,499.00**!). If an AI agent sums `amt_c` and prints `"Total Sales: \$2,499,000"`, someone is having a very bad Monday.
+2. `st_code = 3` means **"Returned by Customer"** (`1 = Paid`, `2 = Shipped`, `3 = Returned`).
+3. The `buyer_phone` column is private customer PII and should never be shown on an internal sales leaderboard.
+
+**Google Cloud Knowledge Catalog** is the central "library card catalog" for all your data across Google Cloud (Cloud SQL, AlloyDB, BigQuery, Spanner, Cloud Storage). Instead of changing your database tables, it lets you attach **business meaning, formulas, privacy rules, and approved joins** to your tables in a structured way that both humans and AI agents can read.
+
+#### The 6 Key Building Blocks of Knowledge Catalog (With Simple Bookstore Examples)
+
+Think of Knowledge Catalog like a digital bulletin board of index cards. Every term in the API maps to one simple concept on that board:
+
+```mermaid
+flowchart LR
+    subgraph EG["1. Entry Group / Context Set ('bookstore-context-set')"]
+        Gloss["2. Glossary Entry\n'Net Book Sales'\n(Official Metric)"]
+        TblOrders["2. Table Entry\n'book_orders'\n(Cloud SQL Table)"]
+        TblBooks["2. Table Entry\n'books'\n(Cloud SQL Table)"]
+
+        subgraph Asp["3. Aspects (Sticky Notes on 'book_orders')"]
+            A1["descriptions:\namt_c = price in CENTS (/ 100)\nst_code 3 = Returned"]
+            A2["queries:\nVerified SQL for Net Sales"]
+            A3["contacts:\nSteward: billing@bookstore.com"]
+        end
+
+        TblOrders --- Asp
+        Gloss ==>|"4. Entry Link (type: definition)\nTargets: Schema.amt_c"| TblOrders
+        TblOrders <==>|"4. Entry Link (type: schema-join)\nbook_orders.book_id = books.id"| TblBooks
+    end
+
+    EG -->|"5. lookup_context\n(Returns 1 clean YAML sheet)"| Agent["AI Coding Agent\n(Antigravity / ADK)"]
+```
+
+Here is a cheat sheet for the 6 terms you will see whenever you work with Knowledge Catalog:
+
+| Knowledge Catalog Term | Everyday Analogy | Simple Bookstore Example |
+| :--- | :--- | :--- |
+| **1. Entry (`Entry`)** | **A single index card** in the catalog representing one table, file, or business concept. | You have one Entry for the `book_orders` table, one Entry for the `books` table, and one Entry for the business term *"Net Book Sales"*. |
+| **2. Entry Group & Context Set (`EntryGroup`)** | **The folder or box** that holds a set of related index cards together. | Setting `type="context-set"` creates an AI-ready folder (`bookstore-context-set`) designed so coding agents can discover all the tables and rules for one business domain in a single place. |
+| **3. Aspects (`Aspects`)** | **Typed "sticky notes"** stuck onto an Entry card (or even onto a specific column of an Entry!). | On the `book_orders` Entry, you attach a **`descriptions` aspect** (*"`amt_c` is in cents; divide by 100"*), a **`contacts` aspect** (*"Owner: Sarah in Finance"*), and a **`queries` aspect** (a pre-tested `SELECT` statement). |
+| **4. Business Glossary (`Glossary`)** | **The company dictionary** that defines metrics and terms once so Sales, Finance, and AI agents use the exact same math. | Defining **"Net Book Sales"** as `SUM(amt_c) / 100.0 WHERE st_code IN (1, 2)` (excluding `3 = Returned`). |
+| **5. Entry Links (`EntryLink`)** | **Strings pinned between two index cards** showing how they connect. | - A **`definition` link** connects the *"Net Book Sales"* glossary card to `book_orders.Schema.amt_c`.<br/>- A **`schema-join` link** connects `book_orders.Schema.book_id` to `books.Schema.id` so the AI knows the exact approved `JOIN` key. |
+| **6. `lookup_context` & `compile_query`** | **The AI's reading glasses**—how an agent fetches the context or compiles governed SQL before writing code. | Instead of making 20 API calls to read raw metadata, the agent calls **`lookup_context`**, which bundles the table's schema, Aspect sticky notes, Glossary definitions, and `schema-join` links into **one clean YAML summary** optimized for LLMs! (And if you use a Semantic Model entry, **`compile_query`** turns metric names directly into SQL.) |
+
+> 💡 **Why Not Just Put Everything in a Markdown File?**
+> A local `README.md` only lives inside one Git repo. **Knowledge Catalog** lives at the Google Cloud project/organization level—which means whether someone is querying data from **Google Antigravity**, **BigQuery Studio**, **Looker**, or a **Google ADK agent**, every tool reads the exact same governed definitions, PII tags, and join rules from one central source of truth!
+
+---
+
+### Applying Knowledge Catalog to Our *Roast & Co.* Coffee Franchise
+
+Now that you know the 6 building blocks, look how cleanly our **Roast & Co.** coffee franchise maps onto Knowledge Catalog:
+
+| Knowledge Catalog Building Block | What We Create for *Roast & Co.* | What Problem It Solves |
+| :--- | :--- | :--- |
+| **Context Set (`create_entry_group`)** | `roast-and-co-context-set` (`type="context-set"`) | Bundles all our coffee franchise tables, glossary rules, and verified SQL into one discoverable AI context pack. |
+| **Glossary Entry (`upsert_entry`)** | `glossary-net-store-revenue` | Defines **Net Store Revenue** as `SUM(gross_amount_usd - discount_usd) FILTER (WHERE status = 'COMPLETED')` so no agent ever counts `REFUNDED` or `CANCELLED` orders. |
+| **Table Entries + Aspects (`upsert_entry`)** | `table-orders-context` & `table-customers-context` | Attaches `descriptions` and `queries` aspects warning that `customers.email`, `phone_number`, and `home_address` are **RESTRICTED PII** and pointing agents to the masked MCP tool. |
+| **Entry Links (`upsert_entry_link`)** | `def-net-revenue-to-orders` (`definition`) & `join-orders-to-customers` (`schema-join`) | Explicitly links our revenue definition to `orders.gross_amount_usd` and defines the approved `customer_id` join between `orders` and `customers`. |
+
+Open [`blog-vibe-coding-meet-reality/knowledge_catalog_setup.py`](./blog-vibe-coding-meet-reality/knowledge_catalog_setup.py). Let's walk through the three steps in code:
 
 ### 2.1 Create a Context Set (`create_entry_group` with `type="context-set"`)
 
@@ -216,6 +287,32 @@ piiGovernanceRules:
 registeredEntriesCount: 3
 approvedJoinLinksCount: 2
 ```
+
+### 2.4 How an AI Agent Actually Discovers & Reads This Context Set
+
+Once your Context Set is registered in Knowledge Catalog, how does an AI coding agent (like Google Antigravity) find it when a user asks *"Build me a revenue dashboard for Roast & Co."*?
+
+It follows a simple **two-step handshake** using the Knowledge Catalog MCP server (`datacloud_knowledge_catalog_remote`) or the `gcloud dataplex` CLI:
+
+1. **Step A — Semantic Discovery (`search_entries`)**:
+   The agent searches the catalog in plain English to find the full `projects/...` Entry names:
+   ```bash
+   gcloud dataplex entries search "Roast and Co store revenue and customer orders" \
+     --project="$GOOGLE_CLOUD_PROJECT" \
+     --semantic-search \
+     --limit=10
+   ```
+2. **Step B — Context Lookup (`lookup_context`)**:
+   Taking the full Entry resource names returned by Step A, the agent fetches the LLM-ready YAML briefing sheet:
+   ```bash
+   gcloud dataplex context lookup \
+     --resources="projects/$GOOGLE_CLOUD_PROJECT/locations/us-central1/entryGroups/roast-and-co-context-set/entries/table-orders-context,projects/$GOOGLE_CLOUD_PROJECT/locations/us-central1/entryGroups/roast-and-co-context-set/entries/glossary-net-store-revenue"
+   ```
+
+In two calls, the agent knows:
+- **What `Net Store Revenue` means** (`SUM(gross_amount_usd - discount_usd)` where `status = 'COMPLETED'`).
+- **Which columns in `customers` are off-limits** (`email`, `phone_number`, `home_address`).
+- **Which MCP tool to call instead of writing raw SQL** (`lookup_vip_orders_masked` and `get_store_net_revenue_summary`).
 
 ---
 
