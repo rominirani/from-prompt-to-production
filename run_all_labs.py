@@ -25,6 +25,7 @@ LAB_SUITES: list[tuple[str, str, str]] = [
     ("Lab 08", "Google ADK Multi-Agent Concierge & Eval", "labs/lab08-google-adk-agent/test_concierge_agent.py"),
     ("Lab 09", "Cloud Run Hardened Service & OSV Scanner", "labs/lab09-cloud-run-deploy/test_production_app.py"),
     ("Lab 10", "Gemini Cost Router & Antigravity SDK Bot", "labs/lab10-sdk-and-automation/test_automation_hub.py"),
+    ("Blog Lab", "Context Layer (Cloud SQL + Knowledge Catalog + MCP Toolbox)", "blog-vibe-coding-meet-reality/test_context_layer_blog.py"),
 ]
 
 
